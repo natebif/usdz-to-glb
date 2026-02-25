@@ -18,7 +18,7 @@ app.post('/convert', upload.single('file'), (req, res) => {
   fs.renameSync(inputPath, usdzPath);
   
   try {
-    execSync(`blender --background --python-expr "
+execSync(`python3 convert.py ${usdzPath} ${glbPath}`, { timeout: 120000 });
 import bpy
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.wm.usd_open(filepath='${usdzPath}')
