@@ -1,20 +1,18 @@
 FROM python:3.11-slim
 
-# Install dependencies
-RUN pip install usd-core trimesh numpy
+# Install node (for server.js) and pip packages
+RUN apt-get update && apt-get install -y nodejs npm && \
+    pip install --no-cache-dir usd-core trimesh numpy && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy files
+# Copy project files
 COPY package.json server.js convert.py ./
-
-# Install Node for server.js
-RUN apt-get update && apt-get install -y nodejs npm && npm clean
 
 # Install Node dependencies
 RUN npm install
 
 EXPOSE 3000
 
-# Start server
 CMD ["node", "server.js"]

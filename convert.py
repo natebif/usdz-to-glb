@@ -3,7 +3,10 @@ from pxr import Usd, UsdGeom
 import trimesh
 import numpy as np
 
-stage = Usd.Stage.Open(sys.argv[1])
+usd_file = sys.argv[1]
+glb_file = sys.argv[2]
+
+stage = Usd.Stage.Open(usd_file)
 scene = trimesh.Scene()
 
 for prim in stage.Traverse():
@@ -12,9 +15,11 @@ for prim in stage.Traverse():
         points = np.array(mesh.GetPointsAttr().Get())
         indices = np.array(mesh.GetFaceVertexIndicesAttr().Get())
         counts = np.array(mesh.GetFaceVertexCountsAttr().Get())
-        faces = indices.reshape(-1, 3) if all(c == 3 for c in counts) else None
-        if faces is not None:
+
+        # Only handle triangle faces
+        if all(c == 3 for c in counts):
+            faces = indices.reshape(-1, 3)
             scene.add_geometry(trimesh.Trimesh(vertices=points, faces=faces))
 
-scene.export(sys.argv[2], file_type='glb')
+scene.export(glb_file, file_type='glb')
 
