@@ -20,7 +20,11 @@ app.post('/convert', upload.single('file'), (req, res) => {
 
   try {
     // Call Python converter
-    execSync(`python3 convert.py ${usdzPath} ${glbPath}`, { timeout: 120000 });
+    const { execSync } = require("child_process");
+execSync(`blender --background --python convert.py -- ${usdzPath} ${glbPath}`, { timeout: 120000 });
+
+);
+
 
     if (!fs.existsSync(glbPath)) throw new Error('GLB not created');
 
