@@ -1,31 +1,21 @@
 FROM ubuntu:22.04
 
-# Install Blender dependencies + Node 20 prerequisites
-RUN apt-get update && apt-get install -y \
-    curl xz-utils \
-    libxi6 libxxf86vm1 libxrender1 libgl1 \
-    libxrandr2 libxcursor1 libxinerama1 libxkbcommon0 libglib2.0-0 \
-    libsm6 libice6 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates xz-utils nodejs npm \
+    libtbb2 libOpenImageIO-dev libpng-dev libjpeg-dev \
+    libxi6 libxxf86vm1 libxfixes3 libgl1-mesa-glx \
+    libxkbcommon0 libsm6 libice6 libx11-6 libxext6 libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract Blender 4.0.2, symlink to /usr/local/bin
 RUN curl -L https://mirror.clarkson.edu/blender/release/Blender4.0/blender-4.0.2-linux-x64.tar.xz \
-    | tar xJ -C /opt/ \
-    && ln -s /opt/blender-4.0.2-linux-x64/blender /usr/local/bin/blender
+    | tar xJ -C /opt && ln -s /opt/blender-4.0.2-linux-x64/blender /usr/local/bin/blender
 
-# Install Node 20
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
+ENV LD_LIBRARY_PATH="/opt/blender-4.0.2-linux-x64/lib:${LD_LIBRARY_PATH}"
 
-# Set working directory
 WORKDIR /app
-
-# Copy app files and install Node dependencies
-COPY package.json server.js convert.py ./
+COPY package.json ./
 RUN npm install
+COPY server.js convert.py ./
 
-# Expose port
 EXPOSE 3000
-
-# Start server
 CMD ["node", "server.js"]
