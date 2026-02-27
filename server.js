@@ -39,8 +39,6 @@ app.post("/convert", upload.single("file"), (req, res) => {
   throw new Error(`Blender failed: ${stderr || stdout}`);
 }
 
-    }
-
     if (!fs.existsSync(glbPath)) {
       throw new Error("GLB file was not created");
     }
