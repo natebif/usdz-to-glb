@@ -2,8 +2,10 @@ FROM ubuntu:22.04
 
 # Install Blender dependencies + Node 20 prerequisites
 RUN apt-get update && apt-get install -y \
-    curl xz-utils libxi6 libxxf86vm1 libxrender1 libgl1 \
-    libxkbcommon0 libxrandr2 libxcursor1 libxinerama1 libglib2.0-0 \
+    curl xz-utils \
+    libxi6 libxxf86vm1 libxrender1 libgl1 \
+    libxrandr2 libxcursor1 libxinerama1 libxkbcommon0 libglib2.0-0 \
+    libsm6 libice6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and extract Blender 4.0.2, symlink to /usr/local/bin
