@@ -25,14 +25,18 @@ app.post("/convert", upload.single("file"), (req, res) => {
     console.log("Input:", usdzPath);
     console.log("Output:", glbPath);
 
-    // 🔥 RUN BLENDER (not python3)
-    execSync(
-      `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
-      {
-        stdio: "inherit",
-        timeout: 120000,
-      }
-    );
+    // Run Blender via CLI and capture stdout/stderr
+    try {
+      execSync(
+        `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
+        { stdio: "pipe", timeout: 120000 }
+      );
+    } catch (blenderErr) {
+      console.error("Blender command failed!");
+      console.error("STDOUT:", blenderErr.stdout?.toString());
+      console.error("STDERR:", blenderErr.stderr?.toString());
+      throw blenderErr;
+    }
 
     if (!fs.existsSync(glbPath)) {
       throw new Error("GLB file was not created");
