@@ -12,7 +12,7 @@ try {
   const ldd = execSync('ldd /opt/blender-4.0.2-linux-x64/4.0/python/lib/python3.10/site-packages/pxr/Usd/_usd.so 2>&1 | grep "not found"').toString();
   console.log("Missing libs for _usd.so:\n", ldd);
 } catch (e) {
-  const out = e.stdout?.toString?.() || e.message?.slice(-500);
+  const out = (e.stdout && e.stdout.toString()) || (e.message && e.message.slice(-500)) || "Unknown error";
   console.log("ldd _usd.so result:", out);
 }
 

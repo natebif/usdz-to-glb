@@ -1,11 +1,14 @@
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates xz-utils nodejs npm \
+    curl ca-certificates xz-utils \
     libtbb2 libpng-dev libjpeg-dev \
     libxi6 libxxf86vm1 libxfixes3 libgl1-mesa-glx \
     libxkbcommon0 libsm6 libice6 libx11-6 libxext6 libxrender1 \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
 
 RUN curl -L https://mirror.clarkson.edu/blender/release/Blender4.0/blender-4.0.2-linux-x64.tar.xz \
     | tar xJ -C /opt && ln -s /opt/blender-4.0.2-linux-x64/blender /usr/local/bin/blender
