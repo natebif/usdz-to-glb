@@ -7,48 +7,36 @@ const app = express();
 const upload = multer({ dest: "/tmp/" });
 
 app.post("/convert", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
   const id = crypto.randomUUID();
-  const inputPath = req.file.path;
   const usdzPath = `/tmp/${id}.usdz`;
   const glbPath = `/tmp/${id}.glb`;
-  fs.renameSync(inputPath, usdzPath);
+  fs.renameSync(req.file.path, usdzPath);
 
   try {
-    console.log("Starting Blender conversion...");
-    console.log("Input:", usdzPath);
-    console.log("Output:", glbPath);
-
-    try {
-      execSync(
-        `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
-        { stdio: "pipe", timeout: 120000 }
-      );
-    } catch (blenderErr) {
-      const stderr = blenderErr.stderr?.toString() || '';
-      const stdout = blenderErr.stdout?.toString() || '';
-      console.error("STDERR:", stderr);
-      console.error("STDOUT:", stdout);
-      throw new Error(`Blender failed: ${stderr || stdout}`);
-    }
+    const output = execSync(
+      `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
+      { encoding: "utf-8", timeout: 120000 }
+    );
+    console.log("Blender output:", output.slice(-2000));
 
     if (!fs.existsSync(glbPath)) {
-      throw new Error("GLB file was not created");
+      throw new Error("GLB file was not created. Blender output: " + output.slice(-1000));
     }
-    console.log("Conversion successful");
     res.setHeader("Content-Type", "model/gltf-binary");
     res.send(fs.readFileSync(glbPath));
   } catch (err) {
-    console.error("Conversion error:", err);
-    res.status(500).json({ error: err.message });
+    const stderr = err.stderr?.toString?.() || "";
+    const stdout = err.stdout?.toString?.() || "";
+    const msg = err.message + (stderr ? ` STDERR: ${stderr.slice(-500)}` : "") + (stdout ? ` STDOUT: ${stdout.slice(-500)}` : "");
+    console.error("Conversion error:", msg);
+    res.status(500).json({ error: msg });
   } finally {
     try { fs.unlinkSync(usdzPath); } catch {}
     try { fs.unlinkSync(glbPath); } catch {}
   }
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("USDZ to GLB converter running");
-});
+app.listen(process.env.PORT || 3000, () => console.log("USDZ to GLB converter running"));
+
