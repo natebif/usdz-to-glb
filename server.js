@@ -17,22 +17,34 @@ app.post("/convert", upload.single("file"), (req, res) => {
   const usdzPath = `/tmp/${id}.usdz`;
   const glbPath = `/tmp/${id}.glb`;
 
+  // Rename uploaded temp file to proper .usdz
   fs.renameSync(inputPath, usdzPath);
 
   try {
-    // Call Python converter directly
-    execSync(`python3 convert.py ${usdzPath} ${glbPath}`, {
-      stdio: "inherit",
-      timeout: 120000,
-    });
+    console.log("Starting Blender conversion...");
+    console.log("Input:", usdzPath);
+    console.log("Output:", glbPath);
+
+    // 🔥 RUN BLENDER (not python3)
+    execSync(
+      `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
+      {
+        stdio: "inherit",
+        timeout: 120000,
+      }
+    );
 
     if (!fs.existsSync(glbPath)) {
-      throw new Error("GLB not created");
+      throw new Error("GLB file was not created");
     }
+
+    console.log("Conversion successful");
 
     res.setHeader("Content-Type", "model/gltf-binary");
     res.send(fs.readFileSync(glbPath));
+
   } catch (err) {
+    console.error("Conversion error:", err);
     res.status(500).json({ error: err.message });
   } finally {
     try { fs.unlinkSync(usdzPath); } catch {}
