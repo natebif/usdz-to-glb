@@ -31,11 +31,14 @@ app.post("/convert", upload.single("file"), (req, res) => {
         `blender --background --python convert.py -- "${usdzPath}" "${glbPath}"`,
         { stdio: "pipe", timeout: 120000 }
       );
-    } catch (blenderErr) {
-      console.error("Blender command failed!");
-      console.error("STDOUT:", blenderErr.stdout?.toString());
-      console.error("STDERR:", blenderErr.stderr?.toString());
-      throw blenderErr;
+    } } catch (blenderErr) {
+  const stderr = blenderErr.stderr?.toString() || '';
+  const stdout = blenderErr.stdout?.toString() || '';
+  console.error("STDERR:", stderr);
+  console.error("STDOUT:", stdout);
+  throw new Error(`Blender failed: ${stderr || stdout}`);
+}
+
     }
 
     if (!fs.existsSync(glbPath)) {
