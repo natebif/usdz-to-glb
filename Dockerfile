@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates xz-utils nodejs npm \
-    libtbb2 libOpenImageIO-dev libpng-dev libjpeg-dev \
+    libtbb2 libopenimageio-dev libpng-dev libjpeg-dev \
     libxi6 libxxf86vm1 libxfixes3 libgl1-mesa-glx \
     libxkbcommon0 libsm6 libice6 libx11-6 libxext6 libxrender1 \
     && rm -rf /var/lib/apt/lists/*
