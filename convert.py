@@ -3,6 +3,9 @@ import bpy, sys, os, zipfile
 input_path = sys.argv[-2]
 output_path = sys.argv[-1]
 
+# Enable the USD addon explicitly
+bpy.ops.preferences.addon_enable(module="io_scene_usd")
+
 # USDZ is a ZIP — extract the .usdc/.usda inside
 extract_dir = input_path + "_extracted"
 os.makedirs(extract_dir, exist_ok=True)
@@ -39,3 +42,4 @@ if not os.path.exists(output_path):
     sys.exit(1)
 
 print(f"OK: exported {os.path.getsize(output_path)} bytes")
+
