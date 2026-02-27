@@ -7,26 +7,29 @@ const crypto = require("crypto");
 const app = express();
 const upload = multer({ dest: "/tmp/" });
 
-// Debug: find Blender's Python and check for missing libs
+// Debug: check missing shared libs for USD .so files
 try {
-  const find = execSync('find /opt/blender* -name "*.so" -path "*/lib-dynload/*" 2>&1 | head -20').toString();
-  console.log("Found .so files:\n", find);
+  const ldd = execSync('ldd /opt/blender-4.0.2-linux-x64/4.0/python/lib/python3.10/site-packages/pxr/Usd/_usd.so 2>&1 | grep "not found"').toString();
+  console.log("Missing libs for _usd.so:\n", ldd);
 } catch (e) {
-  console.log("find failed:", e.message?.slice(-500));
+  const out = e.stdout?.toString?.() || e.message?.slice(-500);
+  console.log("ldd _usd.so result:", out);
 }
 
 try {
-  const blenderPath = execSync('which blender || find /opt -name blender -type f 2>&1 | head -5').toString();
-  console.log("Blender binary:", blenderPath);
+  const ldd2 = execSync('ldd /opt/blender-4.0.2-linux-x64/lib/libusd_ms.so 2>&1 | grep "not found"').toString();
+  console.log("Missing libs for libusd_ms.so:\n", ldd2);
 } catch (e) {
-  console.log("Blender location failed:", e.message?.slice(-500));
+  const out = e.stdout?.toString?.() || e.message?.slice(-500);
+  console.log("ldd libusd_ms.so result:", out);
 }
 
+// Also check what io_scene_usd addon looks like
 try {
-  const pythonLibs = execSync('find /opt/blender* -name "io_scene_usd" -o -name "*usd*" 2>&1 | head -20').toString();
-  console.log("USD-related files:\n", pythonLibs);
+  const addon = execSync('find /opt/blender* -path "*/addons/io_scene_usd*" -o -path "*/scripts/startup/*usd*" 2>&1 | head -10').toString();
+  console.log("io_scene_usd addon files:\n", addon);
 } catch (e) {
-  console.log("USD search failed:", e.message?.slice(-500));
+  console.log("addon search failed:", e.message?.slice(-500));
 }
 
 app.post("/convert", upload.single("file"), (req, res) => {
@@ -64,5 +67,4 @@ app.post("/convert", upload.single("file"), (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => console.log("USDZ to GLB converter running."));
-
 
