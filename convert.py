@@ -18,11 +18,12 @@ for obj in bpy.context.scene.objects:
 bpy.context.view_layer.objects.active = bpy.context.scene.objects[0] if bpy.context.scene.objects else None
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-# Export as GLB — preserves geometry, materials, and real-world scale
+# Remove .glb extension because Blender adds it automatically
 bpy.ops.export_scene.gltf(
-    filepath=output_path,
+    filepath=output_path.replace('.glb', ''),
     export_format='GLB',
     export_apply=True,
     export_yup=True,
 )
+
 
