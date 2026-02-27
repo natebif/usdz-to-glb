@@ -6,6 +6,14 @@ const crypto = require("crypto");
 const app = express();
 const upload = multer({ dest: "/tmp/" });
 
+// Debug: log missing shared libraries on startup
+try {
+  const missing = execSync('ldd /opt/blender-4.0.2-linux-x64/4.0/python/lib/python3.10/lib-dynload/*.so 2>&1 | grep "not found"').toString();
+  console.log("Missing libs:\n", missing);
+} catch (e) {
+  console.log("ldd check:", e.message?.slice(-500));
+}
+
 app.post("/convert", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
