@@ -24,13 +24,22 @@ try:
     for obj in bpy.context.scene.objects:
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
-    # 1) Unparent all objects while keeping their world transform
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+    # Bake each mesh's world matrix directly into its vertex data
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH':
+            mat = obj.matrix_world.copy()
+            obj.data.transform(mat)
+            obj.data.update()
 
-    # 2) Now apply transforms so geometry vertices are in world-space
+    # Clear parents (plain clear, transforms already baked)
     bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    bpy.ops.object.parent_clear(type='CLEAR')
+
+    # Reset all transforms to identity
+    for obj in bpy.data.objects:
+        obj.location = (0, 0, 0)
+        obj.rotation_euler = (0, 0, 0)
+        obj.scale = (1, 1, 1)
 
     # Log transforms AFTER flattening
     for obj in bpy.context.scene.objects:
@@ -47,7 +56,7 @@ try:
             size_y = (max(ys) - min(ys)) * 3.28084
             size_z = (max(zs) - min(zs)) * 3.28084
             print(f"  BBOX {obj.name}: X={size_x:.3f}ft Y={size_y:.3f}ft Z={size_z:.3f}ft")
-            
+
     # Per-vertex min/max for Floor meshes to diagnose axis stretching
     for obj in bpy.data.objects:
         if obj.type == 'MESH' and 'Floor' in obj.name:
@@ -78,3 +87,4 @@ try:
 except Exception as e:
     traceback.print_exc()
     sys.exit(1)
+
