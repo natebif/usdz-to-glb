@@ -20,32 +20,32 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
-    # Log transforms BEFORE flattening
+    # Log scene unit settings to diagnose scaling
+    us = bpy.context.scene.unit_settings
+    print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
+
+    # Log transforms BEFORE flattening — include full parent chain
     for obj in bpy.context.scene.objects:
-        print(f"  PRE  {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
+        ws = obj.matrix_world.to_scale()
+        print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
-    # Bake each mesh's world matrix directly into its vertex data
-    for obj in bpy.data.objects:
-        if obj.type == 'MESH':
-            mat = obj.matrix_world.copy()
-            obj.data.transform(mat)
-            obj.data.update()
-
-    # Clear parents (plain clear, transforms already baked)
+    # 1) Unparent all objects while keeping their world transform
     bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.parent_clear(type='CLEAR')
+    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
 
-    # Reset all transforms to identity
-    for obj in bpy.data.objects:
-        obj.location = (0, 0, 0)
-        obj.rotation_euler = (0, 0, 0)
-        obj.scale = (1, 1, 1)
+    # 2) Apply transforms so geometry vertices are in world-space
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    # Force depsgraph update so bound_box is fresh
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
 
     # Log transforms AFTER flattening
     for obj in bpy.context.scene.objects:
         print(f"  POST {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}")
 
-    # Log bounding boxes to diagnose dimension issues
+    # Log bounding boxes
     for obj in bpy.data.objects:
         if obj.type == 'MESH':
             bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
@@ -57,7 +57,7 @@ try:
             size_z = (max(zs) - min(zs)) * 3.28084
             print(f"  BBOX {obj.name}: X={size_x:.3f}ft Y={size_y:.3f}ft Z={size_z:.3f}ft")
 
-    # Per-vertex min/max for Floor meshes to diagnose axis stretching
+    # Per-vertex diagnostics for Floor meshes
     for obj in bpy.data.objects:
         if obj.type == 'MESH' and 'Floor' in obj.name:
             verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
