@@ -29,7 +29,8 @@ app.post("/convert", upload.single("file"), (req, res) => {
 
     // Extract all BBOX lines from Blender output
     var bboxLines = output.split("\n").filter(function(l) { return l.indexOf("BBOX") !== -1; }).join(" | ");
-
+    var vertsLines = output.split("\n").filter(function(l) { return l.indexOf("VERTS") !== -1; }).join(" | ");
+    res.setHeader("X-Verts-Info", encodeURIComponent(vertsLines || "no VERTS found"));
     res.setHeader("Content-Type", "model/gltf-binary");
     res.setHeader("X-Bbox-Info", encodeURIComponent(bboxLines || "no BBOX found"));
     res.setHeader("X-Blender-Log", encodeURIComponent(output.slice(-1500)));
