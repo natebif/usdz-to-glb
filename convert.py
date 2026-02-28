@@ -47,6 +47,15 @@ try:
             size_y = (max(ys) - min(ys)) * 3.28084
             size_z = (max(zs) - min(zs)) * 3.28084
             print(f"  BBOX {obj.name}: X={size_x:.3f}ft Y={size_y:.3f}ft Z={size_z:.3f}ft")
+            
+    # Per-vertex min/max for Floor meshes to diagnose axis stretching
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH' and 'Floor' in obj.name:
+            verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            xs = [v.x for v in verts]
+            ys = [v.y for v in verts]
+            zs = [v.z for v in verts]
+            print(f"  VERTS {obj.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft  Z=[{min(zs)*3.28084:.3f}, {max(zs)*3.28084:.3f}]ft  vtx_count={len(verts)}")
 
     export_path = glb_out
     if export_path.endswith(".glb"):
