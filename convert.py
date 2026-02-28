@@ -12,6 +12,7 @@ try:
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
+    # Import USD — Blender respects metersPerUnit automatically
     bpy.ops.wm.usd_import(filepath=usdz_in)
 
     obj_count = len(bpy.context.scene.objects)
@@ -21,15 +22,22 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
-    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # Log scale of each object for debugging
+    for obj in bpy.context.scene.objects:
+        print(f"  {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
+
+    # Do NOT apply transforms — the GLTF exporter preserves
+    # the hierarchy and scale correctly without baking.
 
     export_path = glb_out
     if export_path.endswith(".glb"):
         export_path = export_path[:-4]
 
-    bpy.ops.export_scene.gltf(filepath=export_path, export_format='GLB', export_yup=True)
+    bpy.ops.export_scene.gltf(
+        filepath=export_path,
+        export_format='GLB',
+        export_yup=True,
+    )
 
     if os.path.exists(glb_out):
         print(f"OK: exported {os.path.getsize(glb_out)} bytes to {glb_out}")
