@@ -1,4 +1,4 @@
-import bpy, sys, os, traceback
+import bpy, sys, os, traceback, mathutils
 
 try:
     argv = sys.argv[sys.argv.index("--") + 1:]
@@ -25,7 +25,6 @@ try:
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
     # 1) Unparent all objects while keeping their world transform
-    #    This flattens nested scale/rotation from the USD hierarchy
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
 
@@ -36,6 +35,18 @@ try:
     # Log transforms AFTER flattening
     for obj in bpy.context.scene.objects:
         print(f"  POST {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}")
+
+    # Log bounding boxes to diagnose dimension issues
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH':
+            bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+            xs = [v.x for v in bbox]
+            ys = [v.y for v in bbox]
+            zs = [v.z for v in bbox]
+            size_x = (max(xs) - min(xs)) * 3.28084
+            size_y = (max(ys) - min(ys)) * 3.28084
+            size_z = (max(zs) - min(zs)) * 3.28084
+            print(f"  BBOX {obj.name}: X={size_x:.3f}ft Y={size_y:.3f}ft Z={size_z:.3f}ft")
 
     export_path = glb_out
     if export_path.endswith(".glb"):
@@ -58,4 +69,3 @@ try:
 except Exception as e:
     traceback.print_exc()
     sys.exit(1)
-
