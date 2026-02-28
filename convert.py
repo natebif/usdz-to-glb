@@ -12,7 +12,7 @@ try:
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    bpy.ops.wm.usd_open(filepath=usdz_in)
+    bpy.ops.wm.usd_import(filepath=usdz_in)
 
     obj_count = len(bpy.context.scene.objects)
     print(f"Imported {obj_count} objects")
@@ -36,10 +36,7 @@ try:
     elif os.path.exists(export_path + ".glb"):
         print(f"OK: exported {os.path.getsize(export_path + '.glb')} bytes to {export_path}.glb")
     else:
-        print("ERROR: GLB not found. Files in /tmp:")
-        for f in os.listdir("/tmp"):
-            if argv[0].split("/")[-1].replace(".usdz","") in f:
-                print(f"  {f}")
+        print("ERROR: GLB not found")
         sys.exit(1)
 
 except Exception as e:
