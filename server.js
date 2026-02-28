@@ -8,26 +8,20 @@ const upload = multer({ dest: "/tmp/" });
 
 app.post("/convert", upload.single("file"), (req, res) => {
   console.log("Received file:", req.file ? req.file.originalname : "none", "size:", req.file ? req.file.size : 0, "bytes");
-
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
   var id = crypto.randomUUID();
   var usdzPath = "/tmp/" + id + ".usdz";
   var glbPath = "/tmp/" + id + ".glb";
-
   fs.renameSync(req.file.path, usdzPath);
-
   try {
     var output = execSync(
       'blender --background --python convert.py -- "' + usdzPath + '" "' + glbPath + '"',
       { encoding: "utf-8", timeout: 120000 }
     );
     console.log("Blender output:", output.slice(-2000));
-
     if (!fs.existsSync(glbPath)) {
       throw new Error("GLB file was not created. Blender output: " + output.slice(-1000));
     }
-
     res.setHeader("Content-Type", "model/gltf-binary");
     res.send(fs.readFileSync(glbPath));
   } catch (err) {
