@@ -11,7 +11,6 @@ try:
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
-
     bpy.ops.wm.usd_import(filepath=usdz_in)
 
     obj_count = len(bpy.context.scene.objects)
@@ -21,18 +20,22 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
+    # Log transforms BEFORE flattening
     for obj in bpy.context.scene.objects:
-        print(f"  PRE  {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
+        print(f"  PRE  {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
-    # FIX: Apply all transforms so geometry vertices reflect true
-    # world-space positions. The GLTF exporter does not reliably
-    # propagate nested USD transform hierarchies, causing dimension
-    # mismatches vs the original USDZ.
+    # 1) Unparent all objects while keeping their world transform
+    #    This flattens nested scale/rotation from the USD hierarchy
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+
+    # 2) Now apply transforms so geometry vertices are in world-space
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
+    # Log transforms AFTER flattening
     for obj in bpy.context.scene.objects:
-        print(f"  POST {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
+        print(f"  POST {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}")
 
     export_path = glb_out
     if export_path.endswith(".glb"):
@@ -55,3 +58,4 @@ try:
 except Exception as e:
     traceback.print_exc()
     sys.exit(1)
+
