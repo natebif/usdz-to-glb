@@ -12,7 +12,6 @@ try:
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # Import USD — Blender respects metersPerUnit automatically
     bpy.ops.wm.usd_import(filepath=usdz_in)
 
     obj_count = len(bpy.context.scene.objects)
@@ -22,12 +21,18 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
-    # Log scale of each object for debugging
     for obj in bpy.context.scene.objects:
-        print(f"  {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
+        print(f"  PRE  {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
 
-    # Do NOT apply transforms — the GLTF exporter preserves
-    # the hierarchy and scale correctly without baking.
+    # FIX: Apply all transforms so geometry vertices reflect true
+    # world-space positions. The GLTF exporter does not reliably
+    # propagate nested USD transform hierarchies, causing dimension
+    # mismatches vs the original USDZ.
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    for obj in bpy.context.scene.objects:
+        print(f"  POST {obj.name}: scale={obj.scale[:]}, location={obj.location[:]}")
 
     export_path = glb_out
     if export_path.endswith(".glb"):
