@@ -1,45 +1,34 @@
-import bpy, sys, os, zipfile
+import bpy, sys, os
 
-input_path = sys.argv[-2]
-output_path = sys.argv[-1]
+argv = sys.argv[sys.argv.index("--") + 1:]
+usdz_in = argv[0]
+glb_out = argv[1]
 
-# Enable the USD addon explicitly
-bpy.ops.preferences.addon_enable(module="io_scene_usd")
+# Blender's gltf exporter appends .glb automatically, so strip it
+if glb_out.endswith(".glb"):
+    glb_out = glb_out[:-4]
 
-# USDZ is a ZIP — extract the .usdc/.usda inside
-extract_dir = input_path + "_extracted"
-os.makedirs(extract_dir, exist_ok=True)
-usd_file = input_path  # fallback
-
-if zipfile.is_zipfile(input_path):
-    with zipfile.ZipFile(input_path, 'r') as z:
-        z.extractall(extract_dir)
-        for f in z.namelist():
-            if f.endswith(('.usdc', '.usda', '.usd')):
-                usd_file = os.path.join(extract_dir, f)
-                break
-
+# Clear default scene
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
-try:
-    bpy.ops.import_scene.usd(filepath=usd_file)
-except Exception as e:
-    print(f"import_scene.usd failed: {e}")
-    try:
-        bpy.ops.wm.usd_open(filepath=usd_file)
-    except Exception as e2:
-        print(f"wm.usd_open also failed: {e2}")
-        sys.exit(1)
+# In Blender 4.1+, USD import is built-in — no addon needed
+bpy.ops.wm.usd_open(filepath=usdz_in)
 
 if len(bpy.context.scene.objects) == 0:
     print("ERROR: No objects imported")
     sys.exit(1)
 
-bpy.ops.export_scene.gltf(filepath=output_path, export_format='GLB')
+# Apply transforms for correct scale in Three.js
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-if not os.path.exists(output_path):
-    print("ERROR: GLB not created")
+# Export
+bpy.ops.export_scene.gltf(filepath=glb_out, export_format='GLB', export_yup=True)
+
+final_path = glb_out + ".glb"
+if not os.path.exists(final_path):
+    print("ERROR: GLB not created at " + final_path)
     sys.exit(1)
 
-print(f"OK: exported {os.path.getsize(output_path)} bytes")
+print("OK: exported " + str(os.path.getsize(final_path)) + " bytes")
 

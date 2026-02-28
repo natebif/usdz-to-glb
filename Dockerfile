@@ -10,10 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 
-RUN curl -L https://mirror.clarkson.edu/blender/release/Blender4.0/blender-4.0.2-linux-x64.tar.xz \
-    | tar xJ -C /opt && ln -s /opt/blender-4.0.2-linux-x64/blender /usr/local/bin/blender
+RUN curl -L https://mirror.clarkson.edu/blender/release/Blender4.1/blender-4.1.1-linux-x64.tar.xz \
+    -o /tmp/blender.tar.xz \
+    && tar xf /tmp/blender.tar.xz -C /opt/ \
+    && rm /tmp/blender.tar.xz
 
-ENV LD_LIBRARY_PATH="/opt/blender-4.0.2-linux-x64/lib:${LD_LIBRARY_PATH}"
+ENV PATH="/opt/blender-4.1.1-linux-x64:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/blender-4.1.1-linux-x64/lib:${LD_LIBRARY_PATH}"
+
 
 WORKDIR /app
 COPY package.json ./
