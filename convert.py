@@ -96,6 +96,24 @@ try:
 
         print(f"  WALL_BOUNDS: X=[{wall_min.x*3.28084:.3f}, {wall_max.x*3.28084:.3f}]ft  Y=[{wall_min.y*3.28084:.3f}, {wall_max.y*3.28084:.3f}]ft")
 
+    margin = 0.01  # 1cm margin
+    for fo in floor_objs:
+        bm = bmesh.new()
+        bm.from_mesh(fo.data)
+
+        # Clip -X: normal points INWARD (+X) to keep interior
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+        # Clip +X: normal points INWARD (-X)
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
+        # Clip -Y: normal points INWARD (+Y)
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
+        # Clip +Y: normal points INWARD (-Y)
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
+
+        bm.to_mesh(fo.data)
+        bm.free()
+        fo.data.update()
+
         for fo in floor_objs:
             bm = bmesh.new()
             bm.from_mesh(fo.data)
