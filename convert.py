@@ -136,7 +136,7 @@ try:
     for obj in bpy.context.scene.objects:
         print(f"  POST {obj.name}: scale={obj.scale[:]}, loc={obj.location[:]}")
 
-    # Log bounding boxes
+       # Log bounding boxes
     for obj in bpy.data.objects:
         if obj.type == 'MESH':
             bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
@@ -147,6 +147,18 @@ try:
             size_y = (max(ys) - min(ys)) * 3.28084
             size_z = (max(zs) - min(zs)) * 3.28084
             print(f"  BBOX {obj.name}: X={size_x:.3f}ft Y={size_y:.3f}ft Z={size_z:.3f}ft")
+
+    # Extract ROOM dimensions from RoomPlan Section objects
+    for obj in bpy.data.objects:
+        if obj.parent and obj.parent.name == "Section_grp" and obj.type == 'MESH':
+            bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+            xs = [v.x for v in bbox]
+            ys = [v.y for v in bbox]
+            zs = [v.z for v in bbox]
+            sx = (max(xs) - min(xs)) * 3.28084
+            sy = (max(ys) - min(ys)) * 3.28084
+            sz = (max(zs) - min(zs)) * 3.28084
+            print(f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft")
 
     # Per-vertex diagnostics for Floor meshes
     for obj in bpy.data.objects:

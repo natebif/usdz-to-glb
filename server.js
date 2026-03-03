@@ -23,6 +23,8 @@ app.post("/convert", upload.single("file"), (req, res) => {
       throw new Error("GLB file was not created. Blender output: " + output.slice(-1000));
     }
     var bboxLines = output.split("\n").filter(function(l) { return l.indexOf("BBOX") !== -1; }).join(" | ");
+    var roomLines = output.split("\n").filter(function(l) { return l.indexOf("ROOM") !== -1 && l.indexOf("BBOX") === -1; }).join(" | ");
+    res.setHeader("X-Room-Info", encodeURIComponent(roomLines || "no ROOM found"));
     var vertsLines = output.split("\n").filter(function(l) { return l.indexOf("VERTS") !== -1; }).join(" | ");
     var unitsLines = output.split("\n").filter(function(l) { return l.indexOf("UNITS") !== -1; }).join(" | ");
     var preLines = output.split("\n").filter(function(l) { return l.indexOf("PRE") !== -1; }).join(" | ");
@@ -30,6 +32,7 @@ app.post("/convert", upload.single("file"), (req, res) => {
     res.setHeader("X-Verts-Info", encodeURIComponent(vertsLines || "no VERTS found"));
     res.setHeader("X-Units-Info", encodeURIComponent(unitsLines || "no UNITS found"));
     res.setHeader("X-Pre-Info", encodeURIComponent(preLines || "no PRE found"));
+    res.setHeader("X-Room-Info", encodeURIComponent(roomLines || "no ROOM found"));
     res.setHeader("X-Blender-Log", encodeURIComponent(output.slice(-1500)));
     res.setHeader("Content-Type", "model/gltf-binary");
     res.send(fs.readFileSync(glbPath));
