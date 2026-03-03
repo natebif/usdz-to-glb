@@ -7,6 +7,7 @@ try:
 
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
+    print("CONVERT_VERSION=3")
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
@@ -97,7 +98,7 @@ try:
         print(f"  WALL_BOUNDS: X=[{wall_min.x*3.28084:.3f}, {wall_max.x*3.28084:.3f}]ft  Y=[{wall_min.y*3.28084:.3f}, {wall_max.y*3.28084:.3f}]ft")
 
         margin = 0.01
-    for fo in floor_objs:
+        for fo in floor_objs:
         bm = bmesh.new()
         bm.from_mesh(fo.data)
 
