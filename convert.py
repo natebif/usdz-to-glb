@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=3")
+    print(f"CONVERT_VERSION=4")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -60,6 +60,42 @@ try:
         ws = obj.matrix_world.to_scale()
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
+    # --- Extract ROOM dimensions BEFORE flattening (while parent hierarchy exists) ---
+    M2FT = 3.28084
+    room_lines = []
+    for obj in bpy.data.objects:
+        if obj.parent and obj.parent.name == "Section_grp" and obj.type == 'EMPTY':
+            if "_centerTop" in obj.name:
+                continue
+            bb_min = mathutils.Vector((float('inf'),) * 3)
+            bb_max = mathutils.Vector((float('-inf'),) * 3)
+            has_verts = False
+            for child in obj.children:
+                if child.type == 'MESH':
+                    for v in child.data.vertices:
+                        co = child.matrix_world @ v.co
+                        bb_min = mathutils.Vector((min(bb_min[i], co[i]) for i in range(3)))
+                        bb_max = mathutils.Vector((max(bb_max[i], co[i]) for i in range(3)))
+                        has_verts = True
+            if not has_verts:
+                # Use the empty's own world-space location + scale as rough bounds
+                loc = obj.matrix_world.to_translation()
+                sc = obj.matrix_world.to_scale()
+                sx = abs(sc.x) * M2FT
+                sy = abs(sc.y) * M2FT
+                sz = abs(sc.z) * M2FT
+                if sx > 0.01 or sy > 0.01:
+                    line = f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft"
+                    room_lines.append(line)
+                    print(line)
+            else:
+                sx = (bb_max.x - bb_min.x) * M2FT
+                sy = (bb_max.y - bb_min.y) * M2FT
+                sz = (bb_max.z - bb_min.z) * M2FT
+                line = f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft"
+                room_lines.append(line)
+                print(line)
+
     # 1) Unparent all objects while keeping their world transform
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
@@ -102,41 +138,41 @@ try:
             bm = bmesh.new()
             bm.from_mesh(fo.data)
 
-            # Transform wall bounds into floor's LOCAL space
             inv = fo.matrix_world.inverted()
             local_min = inv @ wall_min
             local_max = inv @ wall_max
 
-            # Clip -X
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
-            # Clip +X
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
-            # Clip -Y
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
-            # Clip +Y
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
 
-                        bm.to_mesh(fo.data)
+            bm.to_mesh(fo.data)
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
 
-    # Extract ROOM dimensions from Section_grp objects
-    M2FT = 3.28084
+    # --- Log BBOX and VERTS for all mesh objects ---
     for obj in bpy.data.objects:
-        if obj.parent and obj.parent.name == "Section_grp" and obj.type == 'EMPTY':
-            if "_centerTop" in obj.name:
-                continue
-            bb_min = mathutils.Vector((float('inf'),) * 3)
-            bb_max = mathutils.Vector((float('-inf'),) * 3)
-            # Use the section's own dimensions from its children or scale
-            for child in obj.children:
-                for v in (child.data.vertices if child.type == 'MESH' else []):
-                    co = child.matrix_world @ v.co
-                    bb_min = mathutils.Vector((min(bb_min[i], co[i]) for i in range(3)))
-                    bb_max = mathutils.Vector((max(bb_max[i], co[i]) for i in range(3)))
-            if bb_max.x > bb_min.x:
-                sx = (bb_max.x - bb_min.x) * M2FT
-                sy = (bb_max.y - bb_min.y) * M2FT
-                sz = (bb_max.z - bb_min.z) * M2FT
-                print(f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft")
+        if obj.type != 'MESH' or not obj.data.vertices:
+            continue
+        verts = obj.data.vertices
+        xs = [v.co.x for v in verts]
+        ys = [v.co.y for v in verts]
+        zs = [v.co.z for v in verts]
+        dx = (max(xs) - min(xs)) * M2FT
+        dy = (max(ys) - min(ys)) * M2FT
+        dz = (max(zs) - min(zs)) * M2FT
+        print(f"  BBOX {obj.name}: X={dx:.3f}ft Y={dy:.3f}ft Z={dz:.3f}ft")
+        if 'Floor' in obj.name:
+            print(f"  VERTS {obj.name}: X=[{min(xs)*M2FT:.3f}, {max(xs)*M2FT:.3f}]ft  Y=[{min(ys)*M2FT:.3f}, {max(ys)*M2FT:.3f}]ft  Z=[{min(zs)*M2FT:.3f}, {max(zs)*M2FT:.3f}]ft  vtx_count={len(verts)}")
 
+    # --- Export GLB ---
+    bpy.ops.export_scene.gltf(filepath=glb_out, export_format='GLB')
+
+    glb_size = os.path.getsize(glb_out)
+    print(f"\nOK: exported {glb_size} bytes to {glb_out}")
+
+except Exception as e:
+    traceback.print_exc()
+    print(f"FATAL: {e}")
+    sys.exit(1)
