@@ -74,6 +74,51 @@ try:
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.transform.resize(value=(scale_factor, scale_factor, scale_factor))
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # --- Clip floor meshes to wall bounding box ---
+    import bmesh
+    wall_objs = [o for o in bpy.data.objects if o.type == 'MESH' and 'Wall' in o.name]
+    floor_objs = [o for o in bpy.data.objects if o.type == 'MESH' and 'Floor' in o.name]
+    
+    if wall_objs and floor_objs:
+        # Compute wall bounds
+        wall_min = mathutils.Vector((float('inf'), float('inf'), float('inf')))
+        wall_max = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
+        for wo in wall_objs:
+            for v in wo.data.vertices:
+                co = wo.matrix_world @ v.co
+                wall_min.x = min(wall_min.x, co.x)
+                wall_min.y = min(wall_min.y, co.y)
+                wall_min.z = min(wall_min.z, co.z)
+                wall_max.x = max(wall_max.x, co.x)
+                wall_max.y = max(wall_max.y, co.y)
+                wall_max.z = max(wall_max.z, co.z)
+        
+        print(f"  WALL_BOUNDS: X=[{wall_min.x*3.28084:.3f}, {wall_max.x*3.28084:.3f}]ft  Y=[{wall_min.y*3.28084:.3f}, {wall_max.y*3.28084:.3f}]ft")
+        
+        for fo in floor_objs:
+            bm = bmesh.new()
+            bm.from_mesh(fo.data)
+            
+            # Bisect on each side to clip to wall bounds (with small margin)
+            margin = 0.01  # 1cm margin
+            # Clip -X
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_min.x - margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
+            # Clip +X
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_max.x + margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+            # Clip -Y
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_min.y - margin, 0), plane_no=(0, -1, 0), clear_inner=True)
+            # Clip +Y
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_max.y + margin, 0), plane_no=(0, 1, 0), clear_inner=True)
+            
+            bm.to_mesh(fo.data)
+            bm.free()
+            fo.data.update()
+            
+            # Log clipped dimensions
+            verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
+            xs = [v.x for v in verts]
+            ys = [v.y for v in verts]
+            print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
 
     # Force depsgraph update so bound_box is fresh
     dg = bpy.context.evaluated_depsgraph_get()
