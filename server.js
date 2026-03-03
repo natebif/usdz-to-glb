@@ -5,7 +5,6 @@ const fs = require("fs");
 const crypto = require("crypto");
 const app = express();
 const upload = multer({ dest: "/tmp/" });
-
 app.post("/convert", upload.single("file"), (req, res) => {
   console.log("Received file:", req.file ? req.file.originalname : "none", "size:", req.file ? req.file.size : 0, "bytes");
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -23,11 +22,10 @@ app.post("/convert", upload.single("file"), (req, res) => {
       throw new Error("GLB file was not created. Blender output: " + output.slice(-1000));
     }
     var bboxLines = output.split("\n").filter(function(l) { return l.indexOf("BBOX") !== -1; }).join(" | ");
-    var roomLines = output.split("\n").filter(function(l) { return l.indexOf("ROOM") !== -1 && l.indexOf("BBOX") === -1; }).join(" | ");
-    res.setHeader("X-Room-Info", encodeURIComponent(roomLines || "no ROOM found"));
     var vertsLines = output.split("\n").filter(function(l) { return l.indexOf("VERTS") !== -1; }).join(" | ");
     var unitsLines = output.split("\n").filter(function(l) { return l.indexOf("UNITS") !== -1; }).join(" | ");
     var preLines = output.split("\n").filter(function(l) { return l.indexOf("PRE") !== -1; }).join(" | ");
+    var roomLines = output.split("\n").filter(function(l) { return l.indexOf("ROOM") !== -1 && l.indexOf("BBOX") === -1; }).join(" | ");
     res.setHeader("X-Bbox-Info", encodeURIComponent(bboxLines || "no BBOX found"));
     res.setHeader("X-Verts-Info", encodeURIComponent(vertsLines || "no VERTS found"));
     res.setHeader("X-Units-Info", encodeURIComponent(unitsLines || "no UNITS found"));
@@ -47,7 +45,6 @@ app.post("/convert", upload.single("file"), (req, res) => {
     try { fs.unlinkSync(glbPath); } catch (e) {}
   }
 });
-
 app.listen(process.env.PORT || 3000, function() {
   console.log("USDZ to GLB converter running.");
 });
