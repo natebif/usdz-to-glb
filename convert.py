@@ -116,5 +116,27 @@ try:
             # Clip +Y
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
 
-            bm.to_mesh(fo.d
+                        bm.to_mesh(fo.data)
+            bm.free()
+            print(f"  CLIPPED {fo.name} to wall bounds")
+
+    # Extract ROOM dimensions from Section_grp objects
+    M2FT = 3.28084
+    for obj in bpy.data.objects:
+        if obj.parent and obj.parent.name == "Section_grp" and obj.type == 'EMPTY':
+            if "_centerTop" in obj.name:
+                continue
+            bb_min = mathutils.Vector((float('inf'),) * 3)
+            bb_max = mathutils.Vector((float('-inf'),) * 3)
+            # Use the section's own dimensions from its children or scale
+            for child in obj.children:
+                for v in (child.data.vertices if child.type == 'MESH' else []):
+                    co = child.matrix_world @ v.co
+                    bb_min = mathutils.Vector((min(bb_min[i], co[i]) for i in range(3)))
+                    bb_max = mathutils.Vector((max(bb_max[i], co[i]) for i in range(3)))
+            if bb_max.x > bb_min.x:
+                sx = (bb_max.x - bb_min.x) * M2FT
+                sy = (bb_max.y - bb_min.y) * M2FT
+                sz = (bb_max.z - bb_min.z) * M2FT
+                print(f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft")
 
