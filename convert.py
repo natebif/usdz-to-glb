@@ -100,21 +100,19 @@ try:
             bm = bmesh.new()
             bm.from_mesh(fo.data)
 
-            # Bisect on each side to clip to wall bounds (with small margin)
-            margin = 0.01  # 1cm margin
-            # Clip -X: keep geometry where x > wall_min.x (normal points inward = +X)
+            # Clip -X: normal points INWARD (+X) to keep interior
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
-            # Clip +X: keep geometry where x < wall_max.x (normal points inward = -X)
+            # Clip +X: normal points INWARD (-X)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
-            # Clip -Y: keep geometry where y > wall_min.y (normal points inward = +Y)
+            # Clip -Y: normal points INWARD (+Y)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
-            # Clip +Y: keep geometry where y < wall_max.y (normal points inward = -Y)
+            # Clip +Y: normal points INWARD (-Y)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
-
+            
             bm.to_mesh(fo.data)
             bm.free()
             fo.data.update()
-
+            
             # Log clipped dimensions
             verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
             if verts:
@@ -122,7 +120,7 @@ try:
                 ys = [v.y for v in verts]
                 print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
             else:
-                print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING (skip)")
+                print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING")
 
     # Force depsgraph update so bound_box is fresh
     dg = bpy.context.evaluated_depsgraph_get()
