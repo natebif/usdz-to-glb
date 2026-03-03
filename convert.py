@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=5")
+    print(f"CONVERT_VERSION=6")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -119,16 +119,50 @@ try:
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
 
-    # --- Extract ROOM dimensions from wall bounding box ---
-    if wall_min and wall_max:
-        room_x = (wall_max.x - wall_min.x) * M2FT
-        room_y = (wall_max.y - wall_min.y) * M2FT
-        room_z = (wall_max.z - wall_min.z) * M2FT
+    # --- Compute interior ROOM dimensions from opposing wall pairs ---
+    if wall_objs:
+        wall_data = []
+        for wo in wall_objs:
+            verts = wo.data.vertices
+            xs = [v.co.x for v in verts]
+            ys = [v.co.y for v in verts]
+            zs = [v.co.z for v in verts]
+            wall_data.append({
+                'name': wo.name,
+                'cx': (min(xs) + max(xs)) / 2,
+                'cy': (min(ys) + max(ys)) / 2,
+                'dx': max(xs) - min(xs),
+                'dy': max(ys) - min(ys),
+                'dz': max(zs) - min(zs),
+            })
+            print(f"  WALLINFO {wo.name}: cx={wall_data[-1]['cx']*M2FT:.3f}ft cy={wall_data[-1]['cy']*M2FT:.3f}ft dx={wall_data[-1]['dx']*M2FT:.3f}ft dy={wall_data[-1]['dy']*M2FT:.3f}ft")
+
+        # Classify: if dx > dy, wall runs along X axis (defines Y boundary)
+        x_walls = [w for w in wall_data if w['dx'] > w['dy']]
+        y_walls = [w for w in wall_data if w['dy'] >= w['dx']]
+
+        room_x_ft = 0
+        room_y_ft = 0
+        room_z_ft = 0
+
+        if len(y_walls) >= 2:
+            y_walls.sort(key=lambda w: w['cx'])
+            room_x_ft = (abs(y_walls[-1]['cx'] - y_walls[0]['cx'])
+                         - (y_walls[0]['dx'] + y_walls[-1]['dx']) / 2) * M2FT
+
+        if len(x_walls) >= 2:
+            x_walls.sort(key=lambda w: w['cy'])
+            room_y_ft = (abs(x_walls[-1]['cy'] - x_walls[0]['cy'])
+                         - (x_walls[0]['dy'] + x_walls[-1]['dy']) / 2) * M2FT
+
+        if wall_data:
+            room_z_ft = max(w['dz'] for w in wall_data) * M2FT
+
         section_children = [o for o in bpy.data.objects if o.type == 'EMPTY'
                            and o.parent and 'Section' in o.parent.name
                            and '_centerTop' not in o.name]
         room_name = section_children[0].name if section_children else "room0"
-        print(f"  ROOM {room_name}: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft")
+        print(f"  ROOM {room_name}: X={room_x_ft:.3f}ft Y={room_y_ft:.3f}ft Z={room_z_ft:.3f}ft")
     else:
         print("  ROOM info: no walls found, cannot compute room")
 
