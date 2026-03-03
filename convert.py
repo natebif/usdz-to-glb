@@ -5,9 +5,9 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
+    print(f"CONVERT_VERSION=3")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
-    print("CONVERT_VERSION=3")
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
@@ -99,34 +99,34 @@ try:
 
         margin = 0.01
         for fo in floor_objs:
-        bm = bmesh.new()
-        bm.from_mesh(fo.data)
+            bm = bmesh.new()
+            bm.from_mesh(fo.data)
 
-        # Transform wall bounds into floor's LOCAL space
-        inv = fo.matrix_world.inverted()
-        local_min = inv @ wall_min
-        local_max = inv @ wall_max
+            # Transform wall bounds into floor's LOCAL space
+            inv = fo.matrix_world.inverted()
+            local_min = inv @ wall_min
+            local_max = inv @ wall_max
 
-        # Clip -X
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
-        # Clip +X
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
-        # Clip -Y
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
-        # Clip +Y
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
+            # Clip -X
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+            # Clip +X
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
+            # Clip -Y
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
+            # Clip +Y
+            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
 
-        bm.to_mesh(fo.data)
-        bm.free()
-        fo.data.update()
+            bm.to_mesh(fo.data)
+            bm.free()
+            fo.data.update()
 
-        verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
-        if verts:
-            xs = [v.x for v in verts]
-            ys = [v.y for v in verts]
-            print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
-        else:
-            print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING")
+            verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
+            if verts:
+                xs = [v.x for v in verts]
+                ys = [v.y for v in verts]
+                print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
+            else:
+                print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING")
 
     # Force depsgraph update so bound_box is fresh
     dg = bpy.context.evaluated_depsgraph_get()
@@ -168,19 +168,4 @@ try:
 
     bpy.ops.export_scene.gltf(
         filepath=export_path,
-        export_format='GLB',
-        export_yup=True,
-    )
-
-    if os.path.exists(glb_out):
-        print(f"OK: exported {os.path.getsize(glb_out)} bytes to {glb_out}")
-    elif os.path.exists(export_path + ".glb"):
-        print(f"OK: exported {os.path.getsize(export_path + '.glb')} bytes to {export_path}.glb")
-    else:
-        print("ERROR: GLB not found")
-        sys.exit(1)
-
-except Exception as e:
-    traceback.print_exc()
-    sys.exit(1)
-
+      
