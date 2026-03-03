@@ -60,41 +60,27 @@ try:
         ws = obj.matrix_world.to_scale()
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
-    # --- Extract ROOM dimensions BEFORE flattening (while parent hierarchy exists) ---
+        # Extract ROOM dimensions using pxr BBoxCache (authoritative)
     M2FT = 3.28084
-    room_lines = []
-    for obj in bpy.data.objects:
-        if obj.parent and obj.parent.name == "Section_grp" and obj.type == 'EMPTY':
-            if "_centerTop" in obj.name:
-                continue
-            bb_min = mathutils.Vector((float('inf'),) * 3)
-            bb_max = mathutils.Vector((float('-inf'),) * 3)
-            has_verts = False
-            for child in obj.children:
-                if child.type == 'MESH':
-                    for v in child.data.vertices:
-                        co = child.matrix_world @ v.co
-                        bb_min = mathutils.Vector((min(bb_min[i], co[i]) for i in range(3)))
-                        bb_max = mathutils.Vector((max(bb_max[i], co[i]) for i in range(3)))
-                        has_verts = True
-            if not has_verts:
-                # Use the empty's own world-space location + scale as rough bounds
-                loc = obj.matrix_world.to_translation()
-                sc = obj.matrix_world.to_scale()
-                sx = abs(sc.x) * M2FT
-                sy = abs(sc.y) * M2FT
-                sz = abs(sc.z) * M2FT
-                if sx > 0.01 or sy > 0.01:
-                    line = f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft"
-                    room_lines.append(line)
-                    print(line)
-            else:
-                sx = (bb_max.x - bb_min.x) * M2FT
-                sy = (bb_max.y - bb_min.y) * M2FT
-                sz = (bb_max.z - bb_min.z) * M2FT
-                line = f"  ROOM {obj.name}: X={sx:.3f}ft Y={sy:.3f}ft Z={sz:.3f}ft"
-                room_lines.append(line)
-                print(line)
+    try:
+        from pxr import Usd, UsdGeom
+        stage = Usd.Stage.Open(usdz_in)
+        for prim in stage.Traverse():
+            parent = prim.GetParent()
+            if parent and "Section" in parent.GetName() and prim.GetTypeName() == "Xform":
+                name = prim.GetName()
+                if "_centerTop" in name:
+                    continue
+                bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+                bbox = bbox_cache.ComputeWorldBound(prim)
+                rng = bbox.GetRange()
+                if not rng.IsEmpty():
+                    sz = rng.GetSize()
+                    print(f"  ROOM {name}: X={sz[0]*M2FT:.3f}ft Y={sz[1]*M2FT:.3f}ft Z={sz[2]*M2FT:.3f}ft")
+        del stage
+    except Exception as room_err:
+        print(f"  ROOM extraction failed: {room_err}")
+
 
     # 1) Unparent all objects while keeping their world transform
     bpy.ops.object.select_all(action='SELECT')
