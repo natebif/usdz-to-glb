@@ -103,6 +103,12 @@ try:
             ys = [v.y for v in verts]
             zs = [v.z for v in verts]
             print(f"  VERTS {obj.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft  Z=[{min(zs)*3.28084:.3f}, {max(zs)*3.28084:.3f}]ft  vtx_count={len(verts)}")
+    # Dump all floor vertex positions
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH' and 'Floor' in obj.name:
+            verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            for i, v in enumerate(verts):
+                print(f"  V{i}: ({v.x*3.28084:.3f}, {v.y*3.28084:.3f}, {v.z*3.28084:.3f}) ft")
 
     export_path = glb_out
     if export_path.endswith(".glb"):
