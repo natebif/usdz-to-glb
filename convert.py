@@ -96,49 +96,36 @@ try:
 
         print(f"  WALL_BOUNDS: X=[{wall_min.x*3.28084:.3f}, {wall_max.x*3.28084:.3f}]ft  Y=[{wall_min.y*3.28084:.3f}, {wall_max.y*3.28084:.3f}]ft")
 
-    margin = 0.01  # 1cm margin
+        margin = 0.01
     for fo in floor_objs:
         bm = bmesh.new()
         bm.from_mesh(fo.data)
 
-        # Clip -X: normal points INWARD (+X) to keep interior
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
-        # Clip +X: normal points INWARD (-X)
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
-        # Clip -Y: normal points INWARD (+Y)
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
-        # Clip +Y: normal points INWARD (-Y)
-        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
+        # Transform wall bounds into floor's LOCAL space
+        inv = fo.matrix_world.inverted()
+        local_min = inv @ wall_min
+        local_max = inv @ wall_max
+
+        # Clip -X
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
+        # Clip +X
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
+        # Clip -Y
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
+        # Clip +Y
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
 
         bm.to_mesh(fo.data)
         bm.free()
         fo.data.update()
 
-        for fo in floor_objs:
-            bm = bmesh.new()
-            bm.from_mesh(fo.data)
-
-            # Clip -X: normal points INWARD (+X) to keep interior
-            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
-            # Clip +X: normal points INWARD (-X)
-            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(wall_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
-            # Clip -Y: normal points INWARD (+Y)
-            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
-            # Clip +Y: normal points INWARD (-Y)
-            bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, wall_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
-            
-            bm.to_mesh(fo.data)
-            bm.free()
-            fo.data.update()
-            
-            # Log clipped dimensions
-            verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
-            if verts:
-                xs = [v.x for v in verts]
-                ys = [v.y for v in verts]
-                print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
-            else:
-                print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING")
+        verts = [fo.matrix_world @ v.co for v in fo.data.vertices]
+        if verts:
+            xs = [v.x for v in verts]
+            ys = [v.y for v in verts]
+            print(f"  CLIPPED {fo.name}: X=[{min(xs)*3.28084:.3f}, {max(xs)*3.28084:.3f}]ft  Y=[{min(ys)*3.28084:.3f}, {max(ys)*3.28084:.3f}]ft")
+        else:
+            print(f"  CLIPPED {fo.name}: NO VERTICES REMAINING")
 
     # Force depsgraph update so bound_box is fresh
     dg = bpy.context.evaluated_depsgraph_get()
