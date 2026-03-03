@@ -1,4 +1,4 @@
-import bpy, sys, os, traceback, mathutils
+import bpy, sys, os, traceback, mathutils, zipfile, re
 
 try:
     argv = sys.argv[sys.argv.index("--") + 1:]
@@ -10,6 +10,36 @@ try:
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
+    # --- Detect metersPerUnit from the USDZ before importing ---
+    meters_per_unit = 1.0
+    try:
+        from pxr import Usd, UsdGeom
+        stage = Usd.Stage.Open(usdz_in)
+        meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
+        up_axis = UsdGeom.GetStageUpAxis(stage)
+        print(f"  USD_STAGE metersPerUnit={meters_per_unit}, upAxis={up_axis}")
+        del stage
+    except Exception as pxr_err:
+        print(f"  pxr not available ({pxr_err}), falling back to zip grep")
+        try:
+            with zipfile.ZipFile(usdz_in, 'r') as z:
+                for name in z.namelist():
+                    if name.endswith('.usda') or name.endswith('.usdc') or name.endswith('.usd'):
+                        raw = z.read(name)
+                        try:
+                            text = raw.decode('utf-8', errors='ignore')
+                        except:
+                            text = str(raw)
+                        m = re.search(r'metersPerUnit\s*=\s*([\d.eE+-]+)', text)
+                        if m:
+                            meters_per_unit = float(m.group(1))
+                            print(f"  USD_STAGE (grep) metersPerUnit={meters_per_unit} from {name}")
+                            break
+        except Exception as zip_err:
+            print(f"  zip grep failed: {zip_err}")
+
+    print(f"  FINAL metersPerUnit={meters_per_unit}")
+
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wm.usd_import(filepath=usdz_in)
 
@@ -20,11 +50,11 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
-    # Log scene unit settings to diagnose scaling
+    # Log scene unit settings
     us = bpy.context.scene.unit_settings
     print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
 
-    # Log transforms BEFORE flattening — include full parent chain
+    # Log transforms BEFORE flattening
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
@@ -36,6 +66,14 @@ try:
     # 2) Apply transforms so geometry vertices are in world-space
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    # 3) If metersPerUnit != 1.0, scale all geometry to compensate
+    if abs(meters_per_unit - 1.0) > 0.001:
+        scale_factor = meters_per_unit
+        print(f"  SCALING all objects by {scale_factor} to compensate metersPerUnit={meters_per_unit}")
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.transform.resize(value=(scale_factor, scale_factor, scale_factor))
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
     # Force depsgraph update so bound_box is fresh
     dg = bpy.context.evaluated_depsgraph_get()
