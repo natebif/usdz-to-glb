@@ -168,4 +168,18 @@ try:
 
     bpy.ops.export_scene.gltf(
         filepath=export_path,
-      
+        export_format='GLB',
+        export_yup=True,
+    )
+
+    if os.path.exists(glb_out):
+        print(f"OK: exported {os.path.getsize(glb_out)} bytes to {glb_out}")
+    elif os.path.exists(export_path + ".glb"):
+        print(f"OK: exported {os.path.getsize(export_path + '.glb')} bytes to {export_path}.glb")
+    else:
+        print("ERROR: GLB not found")
+        sys.exit(1)
+
+except Exception as e:
+    traceback.print_exc()
+    sys.exit(1)
