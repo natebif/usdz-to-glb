@@ -20,7 +20,7 @@ ENV LD_LIBRARY_PATH="/opt/blender-4.1.1-linux-x64/lib:${LD_LIBRARY_PATH}"
 WORKDIR /app
 COPY package.json ./
 RUN npm install
-ARG CACHE_BUST=1
+ARG CACHE_BUST=3
 COPY server.js convert.py ./
 
 EXPOSE 3000
