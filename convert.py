@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=4")
+    print(f"CONVERT_VERSION=5")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -41,6 +41,8 @@ try:
 
     print(f"  FINAL metersPerUnit={meters_per_unit}")
 
+    M2FT = 3.28084
+
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wm.usd_import(filepath=usdz_in)
 
@@ -59,28 +61,6 @@ try:
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
-
-        # Extract ROOM dimensions using pxr BBoxCache (authoritative)
-    M2FT = 3.28084
-    try:
-        from pxr import Usd, UsdGeom
-        stage = Usd.Stage.Open(usdz_in)
-        for prim in stage.Traverse():
-            parent = prim.GetParent()
-            if parent and "Section" in parent.GetName() and prim.GetTypeName() == "Xform":
-                name = prim.GetName()
-                if "_centerTop" in name:
-                    continue
-                bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
-                bbox = bbox_cache.ComputeWorldBound(prim)
-                rng = bbox.GetRange()
-                if not rng.IsEmpty():
-                    sz = rng.GetSize()
-                    print(f"  ROOM {name}: X={sz[0]*M2FT:.3f}ft Y={sz[1]*M2FT:.3f}ft Z={sz[2]*M2FT:.3f}ft")
-        del stage
-    except Exception as room_err:
-        print(f"  ROOM extraction failed: {room_err}")
-
 
     # 1) Unparent all objects while keeping their world transform
     bpy.ops.object.select_all(action='SELECT')
@@ -103,8 +83,10 @@ try:
     wall_objs = [o for o in bpy.data.objects if o.type == 'MESH' and 'Wall' in o.name]
     floor_objs = [o for o in bpy.data.objects if o.type == 'MESH' and 'Floor' in o.name]
 
+    wall_min = None
+    wall_max = None
+
     if wall_objs and floor_objs:
-        # Compute wall bounds
         wall_min = mathutils.Vector((float('inf'), float('inf'), float('inf')))
         wall_max = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
         for wo in wall_objs:
@@ -117,7 +99,7 @@ try:
                 wall_max.y = max(wall_max.y, co.y)
                 wall_max.z = max(wall_max.z, co.z)
 
-        print(f"  WALL_BOUNDS: X=[{wall_min.x*3.28084:.3f}, {wall_max.x*3.28084:.3f}]ft  Y=[{wall_min.y*3.28084:.3f}, {wall_max.y*3.28084:.3f}]ft")
+        print(f"  WALL_BOUNDS: X=[{wall_min.x*M2FT:.3f}, {wall_max.x*M2FT:.3f}]ft  Y=[{wall_min.y*M2FT:.3f}, {wall_max.y*M2FT:.3f}]ft")
 
         margin = 0.01
         for fo in floor_objs:
@@ -136,6 +118,19 @@ try:
             bm.to_mesh(fo.data)
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
+
+    # --- Extract ROOM dimensions from wall bounding box ---
+    if wall_min and wall_max:
+        room_x = (wall_max.x - wall_min.x) * M2FT
+        room_y = (wall_max.y - wall_min.y) * M2FT
+        room_z = (wall_max.z - wall_min.z) * M2FT
+        section_children = [o for o in bpy.data.objects if o.type == 'EMPTY'
+                           and o.parent and 'Section' in o.parent.name
+                           and '_centerTop' not in o.name]
+        room_name = section_children[0].name if section_children else "room0"
+        print(f"  ROOM {room_name}: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft")
+    else:
+        print("  ROOM info: no walls found, cannot compute room")
 
     # --- Log BBOX and VERTS for all mesh objects ---
     for obj in bpy.data.objects:
