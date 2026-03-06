@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=6")
+    print(f"CONVERT_VERSION=7")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -19,6 +19,17 @@ try:
         meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
         up_axis = UsdGeom.GetStageUpAxis(stage)
         print(f"  USD_STAGE metersPerUnit={meters_per_unit}, upAxis={up_axis}")
+
+        # Dump Section/room prim attributes for debugging
+        for prim in stage.Traverse():
+            path = str(prim.GetPath())
+            if 'ection' in path or 'bedroom' in prim.GetName().lower() or 'room' in prim.GetName().lower():
+                attrs = {}
+                for a in prim.GetAttributes():
+                    val = a.Get()
+                    if val is not None:
+                        attrs[a.GetName()] = str(val)
+                print(f"  USD_PRIM {path}: type={prim.GetTypeName()} attrs={attrs}")
         del stage
     except Exception as pxr_err:
         print(f"  pxr not available ({pxr_err}), falling back to zip grep")
@@ -119,7 +130,7 @@ try:
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
 
-    # --- Compute interior ROOM dimensions from opposing wall pairs ---
+    # --- Detailed wall vertex analysis ---
     if wall_objs:
         wall_data = []
         for wo in wall_objs:
@@ -127,33 +138,67 @@ try:
             xs = [v.co.x for v in verts]
             ys = [v.co.y for v in verts]
             zs = [v.co.z for v in verts]
+
+            # Get unique X and Y values (rounded to mm precision)
+            unique_x = sorted(set(round(x, 3) for x in xs))
+            unique_y = sorted(set(round(y, 3) for y in ys))
+
+            print(f"  WALL_DETAIL {wo.name}: vtx={len(verts)} unique_x({len(unique_x)})={[round(x*M2FT,3) for x in unique_x[:10]]} unique_y({len(unique_y)})={[round(y*M2FT,3) for y in unique_y[:10]]}")
+
             wall_data.append({
                 'name': wo.name,
+                'min_x': min(xs), 'max_x': max(xs),
+                'min_y': min(ys), 'max_y': max(ys),
                 'cx': (min(xs) + max(xs)) / 2,
                 'cy': (min(ys) + max(ys)) / 2,
                 'dx': max(xs) - min(xs),
                 'dy': max(ys) - min(ys),
                 'dz': max(zs) - min(zs),
+                'unique_x': unique_x,
+                'unique_y': unique_y,
             })
-            print(f"  WALLINFO {wo.name}: cx={wall_data[-1]['cx']*M2FT:.3f}ft cy={wall_data[-1]['cy']*M2FT:.3f}ft dx={wall_data[-1]['dx']*M2FT:.3f}ft dy={wall_data[-1]['dy']*M2FT:.3f}ft")
 
-        # Classify: if dx > dy, wall runs along X axis (defines Y boundary)
-        x_walls = [w for w in wall_data if w['dx'] > w['dy']]
-        y_walls = [w for w in wall_data if w['dy'] >= w['dx']]
+        # Compute room center from wall centers
+        center_x = sum(w['cx'] for w in wall_data) / len(wall_data)
+        center_y = sum(w['cy'] for w in wall_data) / len(wall_data)
+        print(f"  ROOM_CENTER: X={center_x*M2FT:.3f}ft Y={center_y*M2FT:.3f}ft")
+
+        # For each wall, find its inner face (edge closest to room center)
+        for w in wall_data:
+            # Inner X: the X edge closest to center_x
+            if w['cx'] > center_x:
+                w['inner_x'] = w['min_x']
+            else:
+                w['inner_x'] = w['max_x']
+
+            # Inner Y: the Y edge closest to center_y
+            if w['cy'] > center_y:
+                w['inner_y'] = w['min_y']
+            else:
+                w['inner_y'] = w['max_y']
+
+            print(f"  WALL_INNER {w['name']}: inner_x={w['inner_x']*M2FT:.3f}ft inner_y={w['inner_y']*M2FT:.3f}ft (cx={w['cx']*M2FT:.3f} cy={w['cy']*M2FT:.3f})")
+
+        # Classify walls by orientation
+        x_walls = [w for w in wall_data if w['dx'] > w['dy']]  # runs along X, defines Y boundary
+        y_walls = [w for w in wall_data if w['dy'] >= w['dx']]  # runs along Y, defines X boundary
+
+        print(f"  WALL_CLASS: x_walls={[w['name'] for w in x_walls]} y_walls={[w['name'] for w in y_walls]}")
 
         room_x_ft = 0
         room_y_ft = 0
         room_z_ft = 0
 
+        # Method 1: inner face approach
         if len(y_walls) >= 2:
             y_walls.sort(key=lambda w: w['cx'])
-            room_x_ft = (abs(y_walls[-1]['cx'] - y_walls[0]['cx'])
-                         - (y_walls[0]['dx'] + y_walls[-1]['dx']) / 2) * M2FT
+            room_x_ft = abs(y_walls[-1]['inner_x'] - y_walls[0]['inner_x']) * M2FT
+            print(f"  ROOM_X_CALC: {y_walls[0]['name']}.inner_x={y_walls[0]['inner_x']*M2FT:.3f} to {y_walls[-1]['name']}.inner_x={y_walls[-1]['inner_x']*M2FT:.3f} = {room_x_ft:.3f}ft")
 
         if len(x_walls) >= 2:
             x_walls.sort(key=lambda w: w['cy'])
-            room_y_ft = (abs(x_walls[-1]['cy'] - x_walls[0]['cy'])
-                         - (x_walls[0]['dy'] + x_walls[-1]['dy']) / 2) * M2FT
+            room_y_ft = abs(x_walls[-1]['inner_y'] - x_walls[0]['inner_y']) * M2FT
+            print(f"  ROOM_Y_CALC: {x_walls[0]['name']}.inner_y={x_walls[0]['inner_y']*M2FT:.3f} to {x_walls[-1]['name']}.inner_y={x_walls[-1]['inner_y']*M2FT:.3f} = {room_y_ft:.3f}ft")
 
         if wall_data:
             room_z_ft = max(w['dz'] for w in wall_data) * M2FT
