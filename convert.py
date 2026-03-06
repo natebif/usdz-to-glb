@@ -5,14 +5,16 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=7")
+    print(f"CONVERT_VERSION=8")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
-    # --- Detect metersPerUnit from the USDZ before importing ---
+    # --- Read USD stage metadata BEFORE Blender import ---
     meters_per_unit = 1.0
+    room_dims_from_usd = {}
+
     try:
         from pxr import Usd, UsdGeom
         stage = Usd.Stage.Open(usdz_in)
@@ -20,16 +22,59 @@ try:
         up_axis = UsdGeom.GetStageUpAxis(stage)
         print(f"  USD_STAGE metersPerUnit={meters_per_unit}, upAxis={up_axis}")
 
-        # Dump Section/room prim attributes for debugging
+        # Traverse ALL prims and dump Section/room related ones fully
         for prim in stage.Traverse():
             path = str(prim.GetPath())
-            if 'ection' in path or 'bedroom' in prim.GetName().lower() or 'room' in prim.GetName().lower():
-                attrs = {}
-                for a in prim.GetAttributes():
-                    val = a.Get()
-                    if val is not None:
-                        attrs[a.GetName()] = str(val)
-                print(f"  USD_PRIM {path}: type={prim.GetTypeName()} attrs={attrs}")
+            ptype = prim.GetTypeName()
+
+            # Log every prim path and type for debugging
+            print(f"  USD_PRIM {path} type={ptype}")
+
+            # Dump ALL attributes for Section-related prims
+            is_section = ('Section' in path or 'room' in path.lower()
+                          or 'bedroom' in path.lower() or 'kitchen' in path.lower()
+                          or 'bathroom' in path.lower() or 'living' in path.lower())
+
+            if is_section or 'Wall' in path:
+                for attr in prim.GetAttributes():
+                    if attr.HasValue():
+                        try:
+                            val = attr.Get()
+                            print(f"    USD_ATTR {attr.GetName()} = {val}")
+                        except:
+                            print(f"    USD_ATTR {attr.GetName()} = <error reading>")
+
+                # Try extent
+                try:
+                    boundable = UsdGeom.Boundable(prim)
+                    if boundable:
+                        extent_attr = boundable.GetExtentAttr()
+                        if extent_attr and extent_attr.HasValue():
+                            ext = extent_attr.Get()
+                            print(f"    USD_EXTENT = {ext}")
+                            if is_section and ext and len(ext) == 2:
+                                mn, mx = ext[0], ext[1]
+                                dx = abs(mx[0] - mn[0])
+                                dy = abs(mx[1] - mn[1])
+                                dz = abs(mx[2] - mn[2])
+                                prim_name = prim.GetName()
+                                room_dims_from_usd[prim_name] = {
+                                    'x_m': dx, 'y_m': dy, 'z_m': dz,
+                                    'extent': [list(mn), list(mx)]
+                                }
+                                print(f"    USD_ROOM_DIMS {prim_name}: {dx:.4f}m x {dy:.4f}m x {dz:.4f}m")
+                except Exception as ext_err:
+                    print(f"    USD_EXTENT_ERR: {ext_err}")
+
+                # Try xform
+                try:
+                    xformable = UsdGeom.Xformable(prim)
+                    if xformable:
+                        local_xform = xformable.GetLocalTransformation()
+                        print(f"    USD_XFORM = {local_xform}")
+                except Exception as xf_err:
+                    pass
+
         del stage
     except Exception as pxr_err:
         print(f"  pxr not available ({pxr_err}), falling back to zip grep")
@@ -51,6 +96,8 @@ try:
             print(f"  zip grep failed: {zip_err}")
 
     print(f"  FINAL metersPerUnit={meters_per_unit}")
+    if room_dims_from_usd:
+        print(f"  USD_ROOM_DIMS_FOUND: {room_dims_from_usd}")
 
     M2FT = 3.28084
 
@@ -130,86 +177,23 @@ try:
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
 
-    # --- Detailed wall vertex analysis ---
-    if wall_objs:
-        wall_data = []
-        for wo in wall_objs:
-            verts = wo.data.vertices
-            xs = [v.co.x for v in verts]
-            ys = [v.co.y for v in verts]
-            zs = [v.co.z for v in verts]
-
-            # Get unique X and Y values (rounded to mm precision)
-            unique_x = sorted(set(round(x, 3) for x in xs))
-            unique_y = sorted(set(round(y, 3) for y in ys))
-
-            print(f"  WALL_DETAIL {wo.name}: vtx={len(verts)} unique_x({len(unique_x)})={[round(x*M2FT,3) for x in unique_x[:10]]} unique_y({len(unique_y)})={[round(y*M2FT,3) for y in unique_y[:10]]}")
-
-            wall_data.append({
-                'name': wo.name,
-                'min_x': min(xs), 'max_x': max(xs),
-                'min_y': min(ys), 'max_y': max(ys),
-                'cx': (min(xs) + max(xs)) / 2,
-                'cy': (min(ys) + max(ys)) / 2,
-                'dx': max(xs) - min(xs),
-                'dy': max(ys) - min(ys),
-                'dz': max(zs) - min(zs),
-                'unique_x': unique_x,
-                'unique_y': unique_y,
-            })
-
-        # Compute room center from wall centers
-        center_x = sum(w['cx'] for w in wall_data) / len(wall_data)
-        center_y = sum(w['cy'] for w in wall_data) / len(wall_data)
-        print(f"  ROOM_CENTER: X={center_x*M2FT:.3f}ft Y={center_y*M2FT:.3f}ft")
-
-        # For each wall, find its inner face (edge closest to room center)
-        for w in wall_data:
-            # Inner X: the X edge closest to center_x
-            if w['cx'] > center_x:
-                w['inner_x'] = w['min_x']
-            else:
-                w['inner_x'] = w['max_x']
-
-            # Inner Y: the Y edge closest to center_y
-            if w['cy'] > center_y:
-                w['inner_y'] = w['min_y']
-            else:
-                w['inner_y'] = w['max_y']
-
-            print(f"  WALL_INNER {w['name']}: inner_x={w['inner_x']*M2FT:.3f}ft inner_y={w['inner_y']*M2FT:.3f}ft (cx={w['cx']*M2FT:.3f} cy={w['cy']*M2FT:.3f})")
-
-        # Classify walls by orientation
-        x_walls = [w for w in wall_data if w['dx'] > w['dy']]  # runs along X, defines Y boundary
-        y_walls = [w for w in wall_data if w['dy'] >= w['dx']]  # runs along Y, defines X boundary
-
-        print(f"  WALL_CLASS: x_walls={[w['name'] for w in x_walls]} y_walls={[w['name'] for w in y_walls]}")
-
-        room_x_ft = 0
-        room_y_ft = 0
-        room_z_ft = 0
-
-        # Method 1: inner face approach
-        if len(y_walls) >= 2:
-            y_walls.sort(key=lambda w: w['cx'])
-            room_x_ft = abs(y_walls[-1]['inner_x'] - y_walls[0]['inner_x']) * M2FT
-            print(f"  ROOM_X_CALC: {y_walls[0]['name']}.inner_x={y_walls[0]['inner_x']*M2FT:.3f} to {y_walls[-1]['name']}.inner_x={y_walls[-1]['inner_x']*M2FT:.3f} = {room_x_ft:.3f}ft")
-
-        if len(x_walls) >= 2:
-            x_walls.sort(key=lambda w: w['cy'])
-            room_y_ft = abs(x_walls[-1]['inner_y'] - x_walls[0]['inner_y']) * M2FT
-            print(f"  ROOM_Y_CALC: {x_walls[0]['name']}.inner_y={x_walls[0]['inner_y']*M2FT:.3f} to {x_walls[-1]['name']}.inner_y={x_walls[-1]['inner_y']*M2FT:.3f} = {room_y_ft:.3f}ft")
-
-        if wall_data:
-            room_z_ft = max(w['dz'] for w in wall_data) * M2FT
-
-        section_children = [o for o in bpy.data.objects if o.type == 'EMPTY'
-                           and o.parent and 'Section' in o.parent.name
-                           and '_centerTop' not in o.name]
-        room_name = section_children[0].name if section_children else "room0"
-        print(f"  ROOM {room_name}: X={room_x_ft:.3f}ft Y={room_y_ft:.3f}ft Z={room_z_ft:.3f}ft")
+    # --- Compute ROOM dimensions ---
+    # PREFERRED: Use USD Section prim extents (authoritative from RoomPlan)
+    if room_dims_from_usd:
+        for room_name, dims in room_dims_from_usd.items():
+            x_ft = dims['x_m'] * meters_per_unit * M2FT
+            y_ft = dims['y_m'] * meters_per_unit * M2FT
+            z_ft = dims['z_m'] * meters_per_unit * M2FT
+            print(f"  ROOM {room_name}: X={x_ft:.3f}ft Y={y_ft:.3f}ft Z={z_ft:.3f}ft (from USD extent)")
     else:
-        print("  ROOM info: no walls found, cannot compute room")
+        # FALLBACK: Use wall bounding box envelope (less accurate)
+        if wall_min and wall_max:
+            room_x = (wall_max.x - wall_min.x) * M2FT
+            room_y = (wall_max.y - wall_min.y) * M2FT
+            room_z = (wall_max.z - wall_min.z) * M2FT
+            print(f"  ROOM room0: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft (from wall envelope - NOT interior)")
+        else:
+            print("  ROOM info: no walls found, cannot compute room")
 
     # --- Log BBOX and VERTS for all mesh objects ---
     for obj in bpy.data.objects:
