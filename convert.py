@@ -5,13 +5,13 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=9")
+    print(f"CONVERT_VERSION=10")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
-    # --- Extract ALL USD metadata before Blender import ---
+    # --- Extract USD metadata BEFORE Blender import ---
     meters_per_unit = 1.0
     usd_room_dims = {}  # room_name -> {x, y, z} in meters
 
@@ -22,20 +22,26 @@ try:
         up_axis = UsdGeom.GetStageUpAxis(stage)
         print(f"  USD_STAGE metersPerUnit={meters_per_unit}, upAxis={up_axis}")
 
-        # Dump ALL prims and their attributes for Section/room objects
         for prim in stage.Traverse():
             path = str(prim.GetPath())
             type_name = prim.GetTypeName()
+            path_lower = path.lower()
 
-            # Log every prim path and type for debugging
-            if any(kw in path.lower() for kw in ['section', 'bedroom', 'room', 'kitchen', 'bath', 'living', 'hall']):
+            # Capture room/section prims
+            if any(kw in path_lower for kw in ['section', 'bedroom', 'room', 'kitchen', 'bath', 'living', 'hall', 'dining', 'closet', 'laundry', 'garage']):
+                # Skip _centerTop markers and group containers
+                if '_centertop' in path_lower or path.endswith('_grp') or path.endswith('Section_grp'):
+                    continue
+
                 print(f"  USD_PRIM {path} type={type_name}")
+
+                # Log ALL attributes
                 for attr in prim.GetAttributes():
                     val = attr.Get()
                     if val is not None:
                         print(f"    USD_ATTR {attr.GetName()} = {val}")
 
-                # Try to get extent from Boundable
+                # Try extent
                 try:
                     boundable = UsdGeom.Boundable(prim)
                     ext = boundable.GetExtentAttr().Get()
@@ -43,21 +49,25 @@ try:
                         dx = abs(ext[1][0] - ext[0][0])
                         dy = abs(ext[1][1] - ext[0][1])
                         dz = abs(ext[1][2] - ext[0][2])
-                        print(f"    USD_EXTENT dx={dx} dy={dy} dz={dz}")
+                        print(f"    USD_EXTENT dx={dx:.4f} dy={dy:.4f} dz={dz:.4f}")
+                        # Store as room dimension (in scene units)
+                        room_name = path.split('/')[-1]
+                        usd_room_dims[room_name] = {'x': dx, 'y': dy, 'z': dz}
                 except:
                     pass
 
-                # Try xformable for transforms
+                # Try xformable scale/translate
                 try:
                     xformable = UsdGeom.Xformable(prim)
                     local_xform = xformable.GetLocalTransformation()
-                    print(f"    USD_LOCAL_XFORM = {local_xform}")
+                    scale = local_xform.GetRow3(0).GetLength(), local_xform.GetRow3(1).GetLength(), local_xform.GetRow3(2).GetLength()
+                    translate = local_xform.ExtractTranslation()
+                    print(f"    USD_XFORM scale=({scale[0]:.4f},{scale[1]:.4f},{scale[2]:.4f}) translate=({translate[0]:.4f},{translate[1]:.4f},{translate[2]:.4f})")
                 except:
                     pass
 
-            # Also log Wall prims
-            if 'wall' in path.lower() and type_name:
-                print(f"  USD_PRIM {path} type={type_name}")
+            # Also check Wall extents
+            if 'wall' in path_lower and type_name and not path.endswith('_grp'):
                 try:
                     boundable = UsdGeom.Boundable(prim)
                     ext = boundable.GetExtentAttr().Get()
@@ -65,9 +75,17 @@ try:
                         dx = abs(ext[1][0] - ext[0][0])
                         dy = abs(ext[1][1] - ext[0][1])
                         dz = abs(ext[1][2] - ext[0][2])
-                        print(f"    USD_WALL_EXTENT dx={dx} dy={dy} dz={dz}")
+                        print(f"  USD_WALL {path} extent=({dx:.4f},{dy:.4f},{dz:.4f})")
                 except:
                     pass
+
+        # Summary of extracted room dims
+        for rname, dims in usd_room_dims.items():
+            M2FT = 3.28084
+            rx = dims['x'] * meters_per_unit * M2FT
+            ry = dims['y'] * meters_per_unit * M2FT
+            rz = dims['z'] * meters_per_unit * M2FT
+            print(f"  USD_ROOM {rname}: X={rx:.3f}ft Y={ry:.3f}ft Z={rz:.3f}ft (raw: {dims['x']:.4f} {dims['y']:.4f} {dims['z']:.4f}, mpu={meters_per_unit})")
 
         del stage
     except Exception as pxr_err:
@@ -103,24 +121,18 @@ try:
         print("ERROR: No objects imported")
         sys.exit(1)
 
-    # Log scene unit settings
     us = bpy.context.scene.unit_settings
     print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
 
-    # Log transforms BEFORE flattening
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
-    # 1) Unparent all objects while keeping their world transform
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-
-    # 2) Apply transforms so geometry vertices are in world-space
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-    # 3) If metersPerUnit != 1.0, scale all geometry to compensate
     if abs(meters_per_unit - 1.0) > 0.001:
         scale_factor = meters_per_unit
         print(f"  SCALING all objects by {scale_factor} to compensate metersPerUnit={meters_per_unit}")
@@ -155,36 +167,35 @@ try:
         for fo in floor_objs:
             bm = bmesh.new()
             bm.from_mesh(fo.data)
-
             inv = fo.matrix_world.inverted()
             local_min = inv @ wall_min
             local_max = inv @ wall_max
-
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_min.x - margin, 0, 0), plane_no=(1, 0, 0), clear_inner=True)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(local_max.x + margin, 0, 0), plane_no=(-1, 0, 0), clear_inner=True)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_min.y - margin, 0), plane_no=(0, 1, 0), clear_inner=True)
             bmesh.ops.bisect_plane(bm, geom=bm.verts[:]+bm.edges[:]+bm.faces[:], plane_co=(0, local_max.y + margin, 0), plane_no=(0, -1, 0), clear_inner=True)
-
             bm.to_mesh(fo.data)
             bm.free()
             print(f"  CLIPPED {fo.name} to wall bounds")
 
     # --- Compute ROOM dimensions ---
-    # Use wall envelope as fallback (we'll parse USD_PRIM data in the edge function)
-    if wall_min and wall_max:
+    # PRIORITY 1: Use USD extent data (authoritative from RoomPlan)
+    # PRIORITY 2: Fall back to wall envelope
+    if usd_room_dims:
+        for rname, dims in usd_room_dims.items():
+            rx = dims['x'] * meters_per_unit * M2FT
+            ry = dims['y'] * meters_per_unit * M2FT
+            rz = dims['z'] * meters_per_unit * M2FT
+            print(f"  ROOM {rname}: X={rx:.3f}ft Y={ry:.3f}ft Z={rz:.3f}ft")
+    elif wall_min and wall_max:
         room_x = (wall_max.x - wall_min.x) * M2FT
         room_y = (wall_max.y - wall_min.y) * M2FT
         room_z = (wall_max.z - wall_min.z) * M2FT
-
-        section_children = [o for o in bpy.data.objects if o.type == 'EMPTY'
-                           and o.parent and 'Section' in o.parent.name
-                           and '_centerTop' not in o.name]
-        room_name = section_children[0].name if section_children else "room0"
-        print(f"  ROOM {room_name}: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft")
+        print(f"  ROOM room0: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft")
     else:
         print("  ROOM info: no walls found, cannot compute room")
 
-    # --- Log BBOX and VERTS for all mesh objects ---
+    # --- Log BBOX and VERTS ---
     for obj in bpy.data.objects:
         if obj.type != 'MESH' or not obj.data.vertices:
             continue
@@ -199,9 +210,7 @@ try:
         if 'Floor' in obj.name:
             print(f"  VERTS {obj.name}: X=[{min(xs)*M2FT:.3f}, {max(xs)*M2FT:.3f}]ft  Y=[{min(ys)*M2FT:.3f}, {max(ys)*M2FT:.3f}]ft  Z=[{min(zs)*M2FT:.3f}, {max(zs)*M2FT:.3f}]ft  vtx_count={len(verts)}")
 
-    # --- Export GLB ---
     bpy.ops.export_scene.gltf(filepath=glb_out, export_format='GLB')
-
     glb_size = os.path.getsize(glb_out)
     print(f"\nOK: exported {glb_size} bytes to {glb_out}")
 
@@ -209,3 +218,4 @@ except Exception as e:
     traceback.print_exc()
     print(f"FATAL: {e}")
     sys.exit(1)
+
