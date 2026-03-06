@@ -5,74 +5,68 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=8")
+    print(f"CONVERT_VERSION=9")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
     print(f"Input size: {os.path.getsize(usdz_in)} bytes")
 
-    # --- Read USD stage metadata BEFORE Blender import ---
+    # --- Extract ALL USD metadata before Blender import ---
     meters_per_unit = 1.0
-    room_dims_from_usd = {}
+    usd_room_dims = {}  # room_name -> {x, y, z} in meters
 
     try:
-        from pxr import Usd, UsdGeom
+        from pxr import Usd, UsdGeom, Gf
         stage = Usd.Stage.Open(usdz_in)
         meters_per_unit = UsdGeom.GetStageMetersPerUnit(stage)
         up_axis = UsdGeom.GetStageUpAxis(stage)
         print(f"  USD_STAGE metersPerUnit={meters_per_unit}, upAxis={up_axis}")
 
-        # Traverse ALL prims and dump Section/room related ones fully
+        # Dump ALL prims and their attributes for Section/room objects
         for prim in stage.Traverse():
             path = str(prim.GetPath())
-            ptype = prim.GetTypeName()
+            type_name = prim.GetTypeName()
 
             # Log every prim path and type for debugging
-            print(f"  USD_PRIM {path} type={ptype}")
-
-            # Dump ALL attributes for Section-related prims
-            is_section = ('Section' in path or 'room' in path.lower()
-                          or 'bedroom' in path.lower() or 'kitchen' in path.lower()
-                          or 'bathroom' in path.lower() or 'living' in path.lower())
-
-            if is_section or 'Wall' in path:
+            if any(kw in path.lower() for kw in ['section', 'bedroom', 'room', 'kitchen', 'bath', 'living', 'hall']):
+                print(f"  USD_PRIM {path} type={type_name}")
                 for attr in prim.GetAttributes():
-                    if attr.HasValue():
-                        try:
-                            val = attr.Get()
-                            print(f"    USD_ATTR {attr.GetName()} = {val}")
-                        except:
-                            print(f"    USD_ATTR {attr.GetName()} = <error reading>")
+                    val = attr.Get()
+                    if val is not None:
+                        print(f"    USD_ATTR {attr.GetName()} = {val}")
 
-                # Try extent
+                # Try to get extent from Boundable
                 try:
                     boundable = UsdGeom.Boundable(prim)
-                    if boundable:
-                        extent_attr = boundable.GetExtentAttr()
-                        if extent_attr and extent_attr.HasValue():
-                            ext = extent_attr.Get()
-                            print(f"    USD_EXTENT = {ext}")
-                            if is_section and ext and len(ext) == 2:
-                                mn, mx = ext[0], ext[1]
-                                dx = abs(mx[0] - mn[0])
-                                dy = abs(mx[1] - mn[1])
-                                dz = abs(mx[2] - mn[2])
-                                prim_name = prim.GetName()
-                                room_dims_from_usd[prim_name] = {
-                                    'x_m': dx, 'y_m': dy, 'z_m': dz,
-                                    'extent': [list(mn), list(mx)]
-                                }
-                                print(f"    USD_ROOM_DIMS {prim_name}: {dx:.4f}m x {dy:.4f}m x {dz:.4f}m")
-                except Exception as ext_err:
-                    print(f"    USD_EXTENT_ERR: {ext_err}")
+                    ext = boundable.GetExtentAttr().Get()
+                    if ext and len(ext) == 2:
+                        dx = abs(ext[1][0] - ext[0][0])
+                        dy = abs(ext[1][1] - ext[0][1])
+                        dz = abs(ext[1][2] - ext[0][2])
+                        print(f"    USD_EXTENT dx={dx} dy={dy} dz={dz}")
+                except:
+                    pass
 
-                # Try xform
+                # Try xformable for transforms
                 try:
                     xformable = UsdGeom.Xformable(prim)
-                    if xformable:
-                        local_xform = xformable.GetLocalTransformation()
-                        print(f"    USD_XFORM = {local_xform}")
-                except Exception as xf_err:
+                    local_xform = xformable.GetLocalTransformation()
+                    print(f"    USD_LOCAL_XFORM = {local_xform}")
+                except:
+                    pass
+
+            # Also log Wall prims
+            if 'wall' in path.lower() and type_name:
+                print(f"  USD_PRIM {path} type={type_name}")
+                try:
+                    boundable = UsdGeom.Boundable(prim)
+                    ext = boundable.GetExtentAttr().Get()
+                    if ext and len(ext) == 2:
+                        dx = abs(ext[1][0] - ext[0][0])
+                        dy = abs(ext[1][1] - ext[0][1])
+                        dz = abs(ext[1][2] - ext[0][2])
+                        print(f"    USD_WALL_EXTENT dx={dx} dy={dy} dz={dz}")
+                except:
                     pass
 
         del stage
@@ -96,8 +90,6 @@ try:
             print(f"  zip grep failed: {zip_err}")
 
     print(f"  FINAL metersPerUnit={meters_per_unit}")
-    if room_dims_from_usd:
-        print(f"  USD_ROOM_DIMS_FOUND: {room_dims_from_usd}")
 
     M2FT = 3.28084
 
@@ -178,22 +170,19 @@ try:
             print(f"  CLIPPED {fo.name} to wall bounds")
 
     # --- Compute ROOM dimensions ---
-    # PREFERRED: Use USD Section prim extents (authoritative from RoomPlan)
-    if room_dims_from_usd:
-        for room_name, dims in room_dims_from_usd.items():
-            x_ft = dims['x_m'] * meters_per_unit * M2FT
-            y_ft = dims['y_m'] * meters_per_unit * M2FT
-            z_ft = dims['z_m'] * meters_per_unit * M2FT
-            print(f"  ROOM {room_name}: X={x_ft:.3f}ft Y={y_ft:.3f}ft Z={z_ft:.3f}ft (from USD extent)")
+    # Use wall envelope as fallback (we'll parse USD_PRIM data in the edge function)
+    if wall_min and wall_max:
+        room_x = (wall_max.x - wall_min.x) * M2FT
+        room_y = (wall_max.y - wall_min.y) * M2FT
+        room_z = (wall_max.z - wall_min.z) * M2FT
+
+        section_children = [o for o in bpy.data.objects if o.type == 'EMPTY'
+                           and o.parent and 'Section' in o.parent.name
+                           and '_centerTop' not in o.name]
+        room_name = section_children[0].name if section_children else "room0"
+        print(f"  ROOM {room_name}: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft")
     else:
-        # FALLBACK: Use wall bounding box envelope (less accurate)
-        if wall_min and wall_max:
-            room_x = (wall_max.x - wall_min.x) * M2FT
-            room_y = (wall_max.y - wall_min.y) * M2FT
-            room_z = (wall_max.z - wall_min.z) * M2FT
-            print(f"  ROOM room0: X={room_x:.3f}ft Y={room_y:.3f}ft Z={room_z:.3f}ft (from wall envelope - NOT interior)")
-        else:
-            print("  ROOM info: no walls found, cannot compute room")
+        print("  ROOM info: no walls found, cannot compute room")
 
     # --- Log BBOX and VERTS for all mesh objects ---
     for obj in bpy.data.objects:
