@@ -26,6 +26,7 @@ app.post("/convert", upload.single("file"), (req, res) => {
     var unitsLines = output.split("\n").filter(function(l) { return l.indexOf("UNITS") !== -1; }).join(" | ");
     var preLines = output.split("\n").filter(function(l) { return l.indexOf("PRE") !== -1; }).join(" | ");
     var usdLines = output.split("\n").filter(function(l) { return l.indexOf("USD_") !== -1; }).join(" | ");
+    var wallGeomLines = output.split("\n").filter(function(l) { return l.indexOf("WALL_GEOM") !== -1 || l.indexOf("ROOM_X") !== -1 || l.indexOf("ROOM_Y") !== -1; }).join(" | ");
     var wallGeomLines = output.split("\n").filter(function(l) { return l.indexOf("WALL_GEOM") !== -1 || l.indexOf("ROOM_X") !== -1 || l.indexOf("ROOM_Y") !== -1 || l.indexOf("USD_") !== -1; }).join(" | ");
     var roomLines = output.split("\n").filter(function(l) { return l.indexOf("ROOM") !== -1 && l.indexOf("BBOX") === -1; }).join(" | ");
     res.setHeader("X-Bbox-Info", encodeURIComponent(bboxLines || "no BBOX found"));
@@ -35,6 +36,7 @@ app.post("/convert", upload.single("file"), (req, res) => {
     res.setHeader("X-Usd-Info", encodeURIComponent(usdLines || "no USD data"));
     res.setHeader("X-Room-Info", encodeURIComponent(roomLines || "no ROOM found"));
     res.setHeader("X-Blender-Log", encodeURIComponent(output.slice(-1500)));
+    res.setHeader("X-Wall-Geom-Info", encodeURIComponent(wallGeomLines || "no WALL_GEOM found"));
     res.setHeader("X-Wall-Geom-Info", encodeURIComponent(wallGeomLines || "none"));
     res.setHeader("Content-Type", "model/gltf-binary");
     res.send(fs.readFileSync(glbPath));
