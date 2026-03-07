@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=14")
+    print(f"CONVERT_VERSION=15")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -104,7 +104,7 @@ try:
     us = bpy.context.scene.unit_settings
     print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
 
-    # --- v14: Capture wall world-space centers BEFORE flattening ---
+    # --- v15: Capture wall world-space centers BEFORE flattening ---
     wall_world_centers = []
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
@@ -124,7 +124,6 @@ try:
             ldx = max(c.x for c in local_corners) - min(c.x for c in local_corners)
             ldy = max(c.y for c in local_corners) - min(c.y for c in local_corners)
             ldz = max(c.z for c in local_corners) - min(c.z for c in local_corners)
-
             thickness = min(ldx, ldy, ldz)
 
             wall_info = {
@@ -136,7 +135,7 @@ try:
             wall_world_centers.append(wall_info)
             print(f"  WALL_GEOM {obj.name}: center=({cx*M2FT:.3f},{cy*M2FT:.3f})ft local=({ldx*M2FT:.3f},{ldy*M2FT:.3f},{ldz*M2FT:.3f})ft thickness={thickness*M2FT:.3f}ft")
 
-    # --- v14: Pair walls and compute room angle ---
+    # --- v15: Pair walls and compute room dims ---
     wall_by_num = {}
     for w in wall_world_centers:
         num = ''.join(c for c in w['name'] if c.isdigit())
@@ -174,7 +173,6 @@ try:
     if wall_world_centers:
         room_z_ft = max(w['world_dz'] for w in wall_world_centers) * M2FT
 
-    # Compute room rotation angle from first wall pair
     if len(pairs) >= 1:
         w0, w1 = pairs[0]
         room_angle = math.atan2(w1['cy'] - w0['cy'], w1['cx'] - w0['cx'])
@@ -193,55 +191,19 @@ try:
         bpy.ops.transform.resize(value=(scale_factor, scale_factor, scale_factor))
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-    # --- v14: Counter-rotate to axis-align the room ---
+    # --- v15: Counter-rotate using MATRIX MATH (works in headless Blender) ---
     if abs(room_angle) > 0.01:
-        # The room_angle is measured in the XY plane (Blender top-down = XY after USD Y-up import)
-        # We need to find which axis the walls are NOT aligned to and rotate around Z
-        # After USD import with Y-up, the floor plane is XZ in Blender (Y is up)
-        # But wall centers are measured in world X,Y (which maps to Blender X,-Z after import)
-        # The rotation should be around Y axis (vertical in Blender)
-        
-        # Actually, looking at the data: wall centers use cx,cy from world-space bbox
-        # In Blender after USD import: X stays X, Y(USD) becomes Z(Blender), Z(USD) becomes -Y(Blender)
-        # But the PRE data shows walls at different X,Z positions (Y is height ~-0.387)
-        # So the rotation is in the XZ plane, around the Y axis
-        
-        # Recalculate angle using the actual Blender coordinates (X and Z from world_pos)
-        # Wall0 world_pos: (1.2190, -0.3869, -0.5892) → X=1.2190, Z=-0.5892 (ignoring Y=height)
-        # Wall2 world_pos: (-0.8626, -0.3869, -3.3503) → X=-0.8626, Z=-3.3503
-        # But we captured cx,cy from bbox corners which ARE in world space
-        # cx uses world X, cy uses world Y... but Y should be height?
-        #
-        # Looking at PRE data: Wall0 world_pos=(1.2190,-0.5892,-0.3869)
-        # So format is (x, z_usd_negated, y_usd)
-        # The wall centers cx,cy were computed from bbox corners which use .x and .y
-        # So cx = world X, cy = world Y (which is -Z_usd = the depth axis)
-        
-        # The angle between walls is in the XY plane of Blender world space
-        # To counter-rotate, we rotate around Z axis by -room_angle
-        print(f"  COUNTER-ROTATING all objects by {math.degrees(-room_angle):.1f}° around Z axis")
-        
-        # Compute scene center to rotate around
-        scene_center = mathutils.Vector((0, 0, 0))
-        mesh_count = 0
+        counter = -room_angle
+        print(f"  COUNTER_ROTATE: applying {math.degrees(counter):.1f}° around Z via matrix math")
+        rot_mat = mathutils.Matrix.Rotation(counter, 4, 'Z')
         for obj in bpy.data.objects:
-            if obj.type == 'MESH':
-                scene_center += obj.location
-                mesh_count += 1
-        if mesh_count > 0:
-            scene_center /= mesh_count
-        
-        # Set 3D cursor to scene center for rotation pivot
-        bpy.context.scene.cursor.location = scene_center
-        
+            obj.matrix_world = rot_mat @ obj.matrix_world
+        # Apply transforms so geometry is baked
         bpy.ops.object.select_all(action='SELECT')
-        # Use the cursor as pivot
-        old_pivot = bpy.context.scene.tool_settings.transform_pivot_point
-        bpy.context.scene.tool_settings.transform_pivot_point = 'CURSOR'
-        bpy.ops.transform.rotate(value=-room_angle, orient_axis='Z', orient_type='GLOBAL')
-        bpy.context.scene.tool_settings.transform_pivot_point = old_pivot
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-        print(f"  Counter-rotation applied")
+        print(f"  Counter-rotation applied via matrix")
+    else:
+        print(f"  COUNTER_ROTATE: room_angle={math.degrees(room_angle):.1f}°, already axis-aligned")
 
     # --- Clip floor meshes to wall bounding box ---
     import bmesh
@@ -298,7 +260,7 @@ try:
     else:
         print("  ROOM info: no walls found, cannot compute room")
 
-    # --- Log BBOX and VERTS (NOW axis-aligned after counter-rotation) ---
+    # --- Log BBOX and VERTS (now axis-aligned after counter-rotation) ---
     for obj in bpy.data.objects:
         if obj.type != 'MESH' or not obj.data.vertices:
             continue
