@@ -1,11 +1,11 @@
-import bpy, sys, os, traceback, mathutils, zipfile, re
+import bpy, sys, os, traceback, mathutils, zipfile, re, math
 
 try:
     argv = sys.argv[sys.argv.index("--") + 1:]
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=12")
+    print(f"CONVERT_VERSION=13")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -104,7 +104,8 @@ try:
     us = bpy.context.scene.unit_settings
     print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
 
-    # --- v12: Capture wall world-space centers BEFORE flattening ---
+    # --- v13: Capture wall world-space centers BEFORE flattening ---
+    # Uses Euclidean distance between opposing wall pairs (handles rotated rooms)
     wall_world_centers = []
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
@@ -112,70 +113,69 @@ try:
         print(f"  PRE  {obj.name}: scale={obj.scale[:]}, world_scale=({ws.x:.4f},{ws.y:.4f},{ws.z:.4f}), world_pos=({wt.x:.4f},{wt.y:.4f},{wt.z:.4f}), loc={obj.location[:]}, parent={obj.parent.name if obj.parent else None}")
 
         if obj.type == 'MESH' and 'Wall' in obj.name:
-            # Get world-space bounding box corners
+            # World-space bounding box center
             bbox_corners = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
             xs = [c.x for c in bbox_corners]
             ys = [c.y for c in bbox_corners]
             zs = [c.z for c in bbox_corners]
             cx = (min(xs) + max(xs)) / 2
             cy = (min(ys) + max(ys)) / 2
-            dx = max(xs) - min(xs)
-            dy = max(ys) - min(ys)
-            dz = max(zs) - min(zs)
-            # Determine orientation by which horizontal axis is longer
-            if dx > dy:
-                orientation = 'x_running'  # wall runs along X axis
-                length = dx
-                thickness = dy
-                perp_pos = cy  # position along Y axis (perpendicular to wall)
-            else:
-                orientation = 'y_running'  # wall runs along Y axis
-                length = dy
-                thickness = dx
-                perp_pos = cx  # position along X axis (perpendicular to wall)
+            world_dz = max(zs) - min(zs)
+
+            # LOCAL bbox = true wall dimensions (not inflated by rotation)
+            local_corners = [mathutils.Vector(c) for c in obj.bound_box]
+            ldx = max(c.x for c in local_corners) - min(c.x for c in local_corners)
+            ldy = max(c.y for c in local_corners) - min(c.y for c in local_corners)
+            ldz = max(c.z for c in local_corners) - min(c.z for c in local_corners)
+
+            # Wall thickness = smallest dimension
+            thickness = min(ldx, ldy, ldz)
+
             wall_info = {
                 'name': obj.name,
                 'cx': cx, 'cy': cy,
-                'dx': dx, 'dy': dy, 'dz': dz,
-                'orientation': orientation,
-                'length': length,
                 'thickness': thickness,
-                'perp_pos': perp_pos,
+                'world_dz': world_dz,
             }
             wall_world_centers.append(wall_info)
-            print(f"  WALL_GEOM {obj.name}: center=({cx*M2FT:.3f},{cy*M2FT:.3f})ft size=({dx*M2FT:.3f},{dy*M2FT:.3f},{dz*M2FT:.3f})ft orient={orientation} length={length*M2FT:.3f}ft thick={thickness*M2FT:.3f}ft perp_pos={perp_pos*M2FT:.3f}ft")
+            print(f"  WALL_GEOM {obj.name}: center=({cx*M2FT:.3f},{cy*M2FT:.3f})ft local=({ldx*M2FT:.3f},{ldy*M2FT:.3f},{ldz*M2FT:.3f})ft thickness={thickness*M2FT:.3f}ft")
 
-    # --- Compute room dims from opposing wall pairs (BEFORE flatten) ---
-    x_running = [w for w in wall_world_centers if w['orientation'] == 'x_running']
-    y_running = [w for w in wall_world_centers if w['orientation'] == 'y_running']
-    x_running.sort(key=lambda w: w['perp_pos'])
-    y_running.sort(key=lambda w: w['perp_pos'])
+    # --- v13: Pair walls by number (0↔2, 1↔3) and use Euclidean distance ---
+    wall_by_num = {}
+    for w in wall_world_centers:
+        num = ''.join(c for c in w['name'] if c.isdigit())
+        if num:
+            wall_by_num[int(num)] = w
+
+    pairs = []
+    used = set()
+    for n in sorted(wall_by_num.keys()):
+        opp = n + 2
+        if opp in wall_by_num and n not in used and opp not in used:
+            pairs.append((wall_by_num[n], wall_by_num[opp]))
+            used.add(n)
+            used.add(opp)
 
     room_x_ft = None
     room_y_ft = None
     room_z_ft = None
 
-    # Room Y dimension = distance between x-running walls (they bound Y)
-    if len(x_running) >= 2:
-        d = abs(x_running[-1]['perp_pos'] - x_running[0]['perp_pos'])
-        t0 = x_running[0]['thickness']
-        t1 = x_running[-1]['thickness']
-        inner = d - (t0 + t1) / 2
-        room_y_ft = inner * M2FT
-        print(f"  ROOM_Y: walls {x_running[0]['name']}(perp={x_running[0]['perp_pos']*M2FT:.3f}ft) to {x_running[-1]['name']}(perp={x_running[-1]['perp_pos']*M2FT:.3f}ft), center_dist={d*M2FT:.3f}ft, inner={room_y_ft:.3f}ft")
+    room_dims_ft = []
+    for w0, w1 in pairs:
+        dist = math.sqrt((w0['cx'] - w1['cx'])**2 + (w0['cy'] - w1['cy'])**2)
+        avg_thick = (w0['thickness'] + w1['thickness']) / 2
+        inner = dist - avg_thick
+        dim_ft = inner * M2FT
+        room_dims_ft.append(dim_ft)
+        print(f"  ROOM_DIM {w0['name']}↔{w1['name']}: euclidean={dist*M2FT:.3f}ft, avg_thick={avg_thick*M2FT:.3f}ft, inner={dim_ft:.3f}ft")
 
-    # Room X dimension = distance between y-running walls (they bound X)
-    if len(y_running) >= 2:
-        d = abs(y_running[-1]['perp_pos'] - y_running[0]['perp_pos'])
-        t0 = y_running[0]['thickness']
-        t1 = y_running[-1]['thickness']
-        inner = d - (t0 + t1) / 2
-        room_x_ft = inner * M2FT
-        print(f"  ROOM_X: walls {y_running[0]['name']}(perp={y_running[0]['perp_pos']*M2FT:.3f}ft) to {y_running[-1]['name']}(perp={y_running[-1]['perp_pos']*M2FT:.3f}ft), center_dist={d*M2FT:.3f}ft, inner={room_x_ft:.3f}ft")
+    if len(room_dims_ft) >= 1:
+        room_x_ft = room_dims_ft[0]
+    if len(room_dims_ft) >= 2:
+        room_y_ft = room_dims_ft[1]
 
     if wall_world_centers:
-        all_dz = [w['dz'] for w in wall_world_centers]
-        room_z_ft = max(all_dz) * M2FT
+        room_z_ft = max(w['world_dz'] for w in wall_world_centers) * M2FT
 
     # --- Now flatten hierarchy ---
     bpy.ops.object.select_all(action='SELECT')
@@ -268,3 +268,4 @@ except Exception as e:
     traceback.print_exc()
     print(f"FATAL: {e}")
     sys.exit(1)
+
