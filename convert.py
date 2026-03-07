@@ -5,7 +5,7 @@ try:
     usdz_in = argv[0]
     glb_out = argv[1]
 
-    print(f"CONVERT_VERSION=15")
+    print(f"CONVERT_VERSION=16")
     print(f"Input: {usdz_in}")
     print(f"Output: {glb_out}")
     print(f"Input exists: {os.path.exists(usdz_in)}")
@@ -104,7 +104,7 @@ try:
     us = bpy.context.scene.unit_settings
     print(f"  UNITS system={us.system}, scale_length={us.scale_length}, length_unit={us.length_unit}")
 
-    # --- v15: Capture wall world-space centers BEFORE flattening ---
+    # --- v16: Capture wall world-space centers BEFORE flattening ---
     wall_world_centers = []
     for obj in bpy.context.scene.objects:
         ws = obj.matrix_world.to_scale()
@@ -126,16 +126,23 @@ try:
             ldz = max(c.z for c in local_corners) - min(c.z for c in local_corners)
             thickness = min(ldx, ldy, ldz)
 
+            # v16: capture local_length (longest local dim = wall length)
+            dims_sorted = sorted([ldx, ldy, ldz], reverse=True)
+            local_length = dims_sorted[0]
+
             wall_info = {
                 'name': obj.name,
                 'cx': cx, 'cy': cy,
                 'thickness': thickness,
                 'world_dz': world_dz,
+                'local_length': local_length,
             }
             wall_world_centers.append(wall_info)
-            print(f"  WALL_GEOM {obj.name}: center=({cx*M2FT:.3f},{cy*M2FT:.3f})ft local=({ldx*M2FT:.3f},{ldy*M2FT:.3f},{ldz*M2FT:.3f})ft thickness={thickness*M2FT:.3f}ft")
+            print(f"  WALL_GEOM {obj.name}: center=({cx*M2FT:.3f},{cy*M2FT:.3f})ft local=({ldx*M2FT:.3f},{ldy*M2FT:.3f},{ldz*M2FT:.3f})ft thickness={thickness*M2FT:.3f}ft length={local_length*M2FT:.3f}ft")
 
-    # --- v15: Pair walls and compute room dims ---
+    # --- v16: Pair walls by matching local length (same-length = opposite) ---
+    # Instead of assuming n+2 pairing, find pairs with similar local_length
+    # and maximized center-to-center distance
     wall_by_num = {}
     for w in wall_world_centers:
         num = ''.join(c for c in w['name'] if c.isdigit())
@@ -144,12 +151,33 @@ try:
 
     pairs = []
     used = set()
-    for n in sorted(wall_by_num.keys()):
-        opp = n + 2
-        if opp in wall_by_num and n not in used and opp not in used:
-            pairs.append((wall_by_num[n], wall_by_num[opp]))
-            used.add(n)
-            used.add(opp)
+    wall_items = list(wall_by_num.items())
+
+    for i in range(len(wall_items)):
+        n_i, w_i = wall_items[i]
+        if n_i in used:
+            continue
+        best_match_idx = None
+        best_score = -float('inf')
+        for j in range(i + 1, len(wall_items)):
+            n_j, w_j = wall_items[j]
+            if n_j in used:
+                continue
+            # Center-to-center distance (opposite walls are far apart)
+            dist = math.sqrt((w_i['cx'] - w_j['cx'])**2 + (w_i['cy'] - w_j['cy'])**2)
+            # Length similarity (opposite walls have same local length)
+            len_diff = abs(w_i['local_length'] - w_j['local_length'])
+            # Score: prefer far apart + similar length
+            score = dist - len_diff * 10
+            if score > best_score:
+                best_score = score
+                best_match_idx = j
+        if best_match_idx is not None:
+            n_j, w_j = wall_items[best_match_idx]
+            pairs.append((w_i, w_j))
+            used.add(n_i)
+            used.add(n_j)
+            print(f"  WALL_PAIR: {w_i['name']}↔{w_j['name']} (length={w_i['local_length']*M2FT:.3f}ft vs {w_j['local_length']*M2FT:.3f}ft)")
 
     room_x_ft = None
     room_y_ft = None
@@ -165,6 +193,9 @@ try:
         room_dims_ft.append(dim_ft)
         print(f"  ROOM_DIM {w0['name']}↔{w1['name']}: euclidean={dist*M2FT:.3f}ft, avg_thick={avg_thick*M2FT:.3f}ft, inner={dim_ft:.3f}ft")
 
+    # Sort dims descending so X=length, Y=width
+    room_dims_ft.sort(reverse=True)
+
     if len(room_dims_ft) >= 1:
         room_x_ft = room_dims_ft[0]
     if len(room_dims_ft) >= 2:
@@ -173,6 +204,7 @@ try:
     if wall_world_centers:
         room_z_ft = max(w['world_dz'] for w in wall_world_centers) * M2FT
 
+    # Compute room rotation angle from the first pair
     if len(pairs) >= 1:
         w0, w1 = pairs[0]
         room_angle = math.atan2(w1['cy'] - w0['cy'], w1['cx'] - w0['cx'])
@@ -191,14 +223,13 @@ try:
         bpy.ops.transform.resize(value=(scale_factor, scale_factor, scale_factor))
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-    # --- v15: Counter-rotate using MATRIX MATH (works in headless Blender) ---
+    # --- v16: Counter-rotate using MATRIX MATH (works in headless Blender) ---
     if abs(room_angle) > 0.01:
         counter = -room_angle
         print(f"  COUNTER_ROTATE: applying {math.degrees(counter):.1f}° around Z via matrix math")
         rot_mat = mathutils.Matrix.Rotation(counter, 4, 'Z')
         for obj in bpy.data.objects:
             obj.matrix_world = rot_mat @ obj.matrix_world
-        # Apply transforms so geometry is baked
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
         print(f"  Counter-rotation applied via matrix")
